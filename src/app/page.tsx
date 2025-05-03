@@ -20,26 +20,28 @@ import { processStockData, type CalculatedStockData } from '@/lib/calculations';
 import { useToast } from "@/hooks/use-toast"; // Import useToast
 
 
-// Initial list of stocks - Ensure these are valid Yahoo Finance tickers (e.g., add .NS for NSE)
-// Keeping original list for now, API route will attempt to add .NS
-const INITIAL_STOCKS = ['ABCAPITAL', 'ABFRL', 'ACC', 'ADANIENT', 'ADANIPORTS', 'AARTIIND', 'ABB', 'ASHOKLEY', 'ASIANPAINT', 'AUROPHARMA']; // Add more relevant tickers
+// Initial list of stocks - Subset of the full list below
+const INITIAL_STOCKS = ['ABB', 'ACC', 'AARTIIND', 'ABCAPITAL', 'ABFRL', 'ADANIENT', 'ADANIGREEN', 'ADANIPORTS', 'ADANITRANS', 'ALKEM'];
 
-// Potentially larger list if needed later - Add more tickers here
+// Full list of ~220 stocks extracted from the provided image
 const ALL_POSSIBLE_STOCKS = [
-    ...INITIAL_STOCKS,
-    'AXISBANK', 'BAJAJ-AUTO', 'BAJAJFINSV', 'BAJFINANCE', 'BALKRISIND', 'BANDHANBNK', 'BANKBARODA',
-    'BERGEPAINT', 'BHARTIARTL', 'BIOCON', 'BOSCHLTD', 'BPCL', 'BRITANNIA', 'CADILAHC', 'CIPLA',
-    'COALINDIA', 'COLPAL', 'CONCOR', 'DLF', 'DABUR', 'DIVISLAB', 'DRREDDY', 'EICHERMOT', 'GAIL',
-    'GLENMARK', 'GODREJCP', 'GRASIM', 'HCLTECH', 'HDFC', 'HDFCBANK', 'HDFCLIFE', 'HEROMOTOCO',
-    'HINDALCO', 'HINDPETRO', 'HINDUNILVR', 'ICICIBANK', 'ICICIGI', 'ICICIPRULI', 'IGL', 'INDIGO',
-    'INDUSINDBK', 'INFY', 'IOC', 'ITC', 'JINDALSTEL', 'JSWSTEEL', 'JUBLFOOD', 'KOTAKBANK', 'LT',
-    'LUPIN', 'M&M', 'MARICO', 'MARUTI', 'MCDOWELL-N', 'MFSL', 'MOTHERSUMI', 'MRF', 'MUTHOOTFIN',
-    'NATIONALUM', 'NAUKRI', 'NESTLEIND', 'NMDC', 'NTPC', 'ONGC', 'PAGEIND', 'PEL', 'PETRONET',
-    'PIDILITIND', 'PNB', 'POWERGRID', 'PVR', 'RELIANCE', 'SBILIFE', 'SBIN', 'SHREECEM', 'SIEMENS',
-    'SRTRANSFIN', 'SUNPHARMA', 'TATACONSUM', 'TATAMOTORS', 'TATAPOWER', 'TATASTEEL', 'TCS',
-    'TECHM', 'TITAN', 'TORNTPHARM', 'UBL', 'ULTRACEMCO', 'UPL', 'VEDL', 'VOLTAS', 'WIPRO',
-    'ZEEL'
-    // Add the rest of the ~220 stocks here...
+    'ABB', 'ACC', 'AARTIIND', 'ABCAPITAL', 'ABFRL', 'ADANIENT', 'ADANIGREEN', 'ADANIPORTS', 'ADANITRANS', 'ALKEM',
+    'AMBUJACEM', 'APOLLOHOSP', 'APOLLOTYRE', 'ASHOKLEY', 'ASIANPAINT', 'ASTRAL', 'ATUL', 'AUBANK', 'AUROPHARMA', 'AXISBANK',
+    'BAJAJ-AUTO', 'BAJFINANCE', 'BAJAJFINSV', 'BAJHLDNG', 'BALKRISIND', 'BANDHANBNK', 'BANKBARODA', 'BATAINDIA', 'BERGEPAINT',
+    'BEL', 'BHARATFORG', 'BHARTIARTL', 'BHEL', 'BIOCON', 'BOSCHLTD', 'BPCL', 'BRITANNIA', 'CANBK', 'CHOLAFIN', 'CIPLA',
+    'COALINDIA', 'COFORGE', 'COLPAL', 'CONCOR', 'COROMANDEL', 'CROMPTON', 'CUMMINSIND', 'DALBHARAT', 'DABUR', 'DEEPAKNTR',
+    'DIVISLAB', 'DLF', 'DRREDDY', 'ESCORTS', 'EICHERMOT', 'FEDERALBNK', 'GAIL', 'GODREJCP', 'GODREJPROP', 'GRASIM',
+    'GUJGASLTD', 'HAVELLS', 'HCLTECH', 'HDFCAMC', 'HDFCBANK', 'HDFCLIFE', 'HEROMOTOCO', 'HINDALCO', 'HINDCOPPER', 'HINDPETRO',
+    'HINDUNILVR', 'HAL', 'HDFC', 'ICICIBANK', 'ICICIGI', 'ICICIPRULI', 'IDFCFIRSTB', 'IDFC', 'INDHOTEL', 'INDIGO',
+    'INDUSTOWER', 'INDUSINDBK', 'INDIAMART', 'IOC', 'IEX', 'NAUKRI', 'INFY', 'IPCALAB', 'IRCTC', 'ITC', 'JINDALSTEL',
+    'JSWSTEEL', 'JUBLFOOD', 'KOTAKBANK', 'LT', 'L_TFH', 'LTTS', 'LALPATHLAB', 'LAURUSLABS', 'LICHSGFIN', 'LUPIN',
+    'M_M', 'M_MFIN', 'MANAPPURAM', 'MARICO', 'MARUTI', 'METROPOLIS', 'MFSL', 'MGL', 'MOTHERSON', 'MPHASIS', 'MRF',
+    'MUTHOOTFIN', 'NATIONALUM', 'NAVINFLUOR', 'NESTLEIND', 'NMDC', 'NTPC', 'OBEROIRLTY', 'ONGC', 'OFSS', 'PAGEIND',
+    'PERSISTENT', 'PETRONET', 'PFIZER', 'PIDILITIND', 'PIIND', 'PNB', 'POLYCAB', 'PFC', 'POWERGRID', 'PVRINOX',
+    'RAMCOCEM', 'RBLBANK', 'RECLTD', 'RELIANCE', 'SBICARD', 'SBILIFE', 'SRF', 'SHRIRAMFIN', 'SBIN', 'SHREECEM',
+    'SIEMENS', 'SAIL', 'SUNPHARMA', 'SUNTV', 'SYNGENE', 'TATACONSUM', 'TATAMOTORS', 'TATAMTRDVR', 'TATAPOWER', 'TATASTEEL',
+    'TCS', 'TECHM', 'TITAN', 'TORNTPHARM', 'TORNTPOWER', 'TRENT', 'TVSMOTOR', 'ULTRACEMCO', 'UBL', 'MCDOWELL-N',
+    'UPL', 'VEDL', 'VOLTAS', 'WHIRLPOOL', 'WIPRO', 'ZEEL', 'ZYDUSLIFE'
 ];
 
 
@@ -105,7 +107,7 @@ const StockDataTable: FC = () => {
         { key: '5-HEMA', label: '5-HEMA' },
         { key: 'JNSAR', label: 'JNSAR' },
         { key: 'HH', label: 'HH' },
-        { key: 'HL', label: 'LL' }, // Renamed from HL to LL as per likely intent
+        { key: 'LL', label: 'LL' }, // Renamed from HL to LL as per likely intent
         { key: 'CL', label: 'CL' },
         { key: 'ATR', label: 'ATR' },
         { key: 'H4', label: 'H4' },
