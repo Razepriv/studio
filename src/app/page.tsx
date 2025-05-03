@@ -17,12 +17,30 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { getStockData, type StockData } from '@/services/stock-data';
 import { processStockData, type CalculatedStockData } from '@/lib/calculations';
-import { format } from 'date-fns'; // For date formatting
+import { useToast } from "@/hooks/use-toast"; // Import useToast
 
-// Initial list of stocks to analyze
-const INITIAL_STOCKS = ['ABCAPITAL', 'ABFRL', 'ACC'];
-// Potentially larger list if needed later
-const ALL_POSSIBLE_STOCKS = [...INITIAL_STOCKS, 'ADANIENT', 'ADANIPORTS', 'AARTIIND', 'ABB', /* Add more as needed */];
+
+// Initial list of stocks - Ensure these are valid Yahoo Finance tickers (e.g., add .NS for NSE)
+// Keeping original list for now, API route will attempt to add .NS
+const INITIAL_STOCKS = ['ABCAPITAL', 'ABFRL', 'ACC', 'ADANIENT', 'ADANIPORTS', 'AARTIIND', 'ABB', 'ASHOKLEY', 'ASIANPAINT', 'AUROPHARMA']; // Add more relevant tickers
+
+// Potentially larger list if needed later - Add more tickers here
+const ALL_POSSIBLE_STOCKS = [
+    ...INITIAL_STOCKS,
+    'AXISBANK', 'BAJAJ-AUTO', 'BAJAJFINSV', 'BAJFINANCE', 'BALKRISIND', 'BANDHANBNK', 'BANKBARODA',
+    'BERGEPAINT', 'BHARTIARTL', 'BIOCON', 'BOSCHLTD', 'BPCL', 'BRITANNIA', 'CADILAHC', 'CIPLA',
+    'COALINDIA', 'COLPAL', 'CONCOR', 'DLF', 'DABUR', 'DIVISLAB', 'DRREDDY', 'EICHERMOT', 'GAIL',
+    'GLENMARK', 'GODREJCP', 'GRASIM', 'HCLTECH', 'HDFC', 'HDFCBANK', 'HDFCLIFE', 'HEROMOTOCO',
+    'HINDALCO', 'HINDPETRO', 'HINDUNILVR', 'ICICIBANK', 'ICICIGI', 'ICICIPRULI', 'IGL', 'INDIGO',
+    'INDUSINDBK', 'INFY', 'IOC', 'ITC', 'JINDALSTEL', 'JSWSTEEL', 'JUBLFOOD', 'KOTAKBANK', 'LT',
+    'LUPIN', 'M&M', 'MARICO', 'MARUTI', 'MCDOWELL-N', 'MFSL', 'MOTHERSUMI', 'MRF', 'MUTHOOTFIN',
+    'NATIONALUM', 'NAUKRI', 'NESTLEIND', 'NMDC', 'NTPC', 'ONGC', 'PAGEIND', 'PEL', 'PETRONET',
+    'PIDILITIND', 'PNB', 'POWERGRID', 'PVR', 'RELIANCE', 'SBILIFE', 'SBIN', 'SHREECEM', 'SIEMENS',
+    'SRTRANSFIN', 'SUNPHARMA', 'TATACONSUM', 'TATAMOTORS', 'TATAPOWER', 'TATASTEEL', 'TCS',
+    'TECHM', 'TITAN', 'TORNTPHARM', 'UBL', 'ULTRACEMCO', 'UPL', 'VEDL', 'VOLTAS', 'WIPRO',
+    'ZEEL'
+    // Add the rest of the ~220 stocks here...
+];
 
 
 const StockDataTable: FC = () => {
@@ -30,42 +48,48 @@ const StockDataTable: FC = () => {
     const [stockData, setStockData] = useState<CalculatedStockData[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
+    const { toast } = useToast(); // Initialize toast
 
     useEffect(() => {
         const fetchData = async () => {
             setLoading(true);
             setError(null);
             try {
-                // Fetch raw data - NOTE: getStockData needs implementation to fetch from Yahoo Finance
-                // Using placeholder data for now based on original service structure
-                const rawData: StockData[] = await getStockData(selectedStock);
+                // Fetch raw data using the service which now calls the API route
+                const rawData: StockData[] = await getStockData(selectedStock, 90); // Fetch 90 days for better EMA/ATR calc
 
-                // Simulate dates corresponding to the raw data length
-                // In a real scenario, the API response would include dates
-                const today = new Date();
-                const dates = rawData.map((_, index) =>
-                    format(new Date(today.getFullYear(), today.getMonth(), today.getDate() - (rawData.length - 1 - index)), 'yyyy-MM-dd')
-                );
-
-
-                if (rawData.length > 0) {
+                if (rawData && rawData.length > 0) {
+                     // Extract dates directly from the fetched data
+                    const dates = rawData.map(d => d.date);
                     const processed = processStockData(rawData, dates);
                     setStockData(processed);
                 } else {
                     setStockData([]);
-                     setError(`No data returned for ${selectedStock}. Ensure the ticker is correct and the data source is available.`);
+                    const message = `No data returned for ${selectedStock}. Check if the ticker is valid on Yahoo Finance (try adding '.NS' for NSE stocks).`;
+                    setError(message);
+                     toast({
+                         variant: "destructive",
+                         title: "Data Fetch Error",
+                         description: message,
+                     });
                 }
-            } catch (err) {
+            } catch (err: any) {
                 console.error("Error fetching or processing stock data:", err);
-                setError(`Failed to load data for ${selectedStock}. Check console for details.`);
+                const errorMessage = err.message || `Failed to load data for ${selectedStock}. Check console for details.`;
+                setError(errorMessage);
                 setStockData([]); // Clear data on error
+                 toast({ // Show toast on error
+                     variant: "destructive",
+                     title: "Data Fetch Error",
+                     description: errorMessage,
+                 });
             } finally {
                 setLoading(false);
             }
         };
 
         fetchData();
-    }, [selectedStock]); // Re-run effect when selectedStock changes
+    }, [selectedStock, toast]); // Re-run effect when selectedStock or toast changes
 
     // Define the columns in the desired order
     const columns: { key: keyof CalculatedStockData; label: string }[] = useMemo(() => [
@@ -81,7 +105,7 @@ const StockDataTable: FC = () => {
         { key: '5-HEMA', label: '5-HEMA' },
         { key: 'JNSAR', label: 'JNSAR' },
         { key: 'HH', label: 'HH' },
-        { key: 'HL', label: 'HL' }, // Assumed LL
+        { key: 'HL', label: 'LL' }, // Renamed from HL to LL as per likely intent
         { key: 'CL', label: 'CL' },
         { key: 'ATR', label: 'ATR' },
         { key: 'H4', label: 'H4' },
@@ -101,11 +125,15 @@ const StockDataTable: FC = () => {
         if (value === null || value === undefined) return '-';
         if (typeof value === 'number') {
             // Format numbers with 2 decimal places, except volume
-             if (Math.abs(value) > 10000) { // Assuming volume is large
+             if (Math.abs(value) > 100000) { // Assuming volume is large, increased threshold
                  return value.toLocaleString();
              }
             return value.toFixed(2);
         }
+        // Handle date formatting if needed, though it should be string 'yyyy-MM-dd'
+        // if (colKey === 'date' && value instanceof Date) {
+        //     return format(value, 'yyyy-MM-dd');
+        // }
         return String(value);
     };
 
@@ -122,12 +150,11 @@ const StockDataTable: FC = () => {
                             <SelectValue placeholder="Select Stock" />
                         </SelectTrigger>
                         <SelectContent>
-                            {INITIAL_STOCKS.map(stock => (
+                            {ALL_POSSIBLE_STOCKS.sort().map(stock => ( // Use the larger list and sort it
                                 <SelectItem key={stock} value={stock}>
                                     {stock}
                                 </SelectItem>
                             ))}
-                            {/* Add more stocks later if needed */}
                         </SelectContent>
                     </Select>
                  </div>
@@ -137,11 +164,11 @@ const StockDataTable: FC = () => {
                 {error && <p className="text-destructive mb-4">{error}</p>}
                 <div className="overflow-x-auto">
                  <Table>
-                    <TableCaption>Calculated stock data for {selectedStock}.</TableCaption>
+                    <TableCaption>Calculated stock data for {selectedStock}. Data sourced from Yahoo Finance.</TableCaption>
                     <TableHeader>
                         <TableRow>
                             {columns.map((col) => (
-                                <TableHead key={col.key} className="whitespace-nowrap px-2 py-2 text-xs font-medium text-muted-foreground">
+                                <TableHead key={col.key} className="whitespace-nowrap px-2 py-2 text-xs font-medium text-muted-foreground sticky top-0 bg-background z-10"> {/* Sticky Header */}
                                     {col.label}
                                 </TableHead>
                             ))}
@@ -150,7 +177,7 @@ const StockDataTable: FC = () => {
                     <TableBody>
                         {loading ? (
                              // Skeleton Loader Rows
-                             Array.from({ length: 5 }).map((_, rowIndex) => (
+                             Array.from({ length: 10 }).map((_, rowIndex) => ( // Increased skeleton rows
                                 <TableRow key={`skel-${rowIndex}`}>
                                      {columns.map((col) => (
                                          <TableCell key={`skel-${rowIndex}-${col.key}`} className="px-2 py-1">
@@ -160,7 +187,8 @@ const StockDataTable: FC = () => {
                                 </TableRow>
                             ))
                         ) : stockData.length > 0 ? (
-                            stockData.map((row, rowIndex) => (
+                            // Display latest data first
+                            [...stockData].reverse().map((row, rowIndex) => (
                                 <TableRow key={row.date || `row-${rowIndex}`}>
                                     {columns.map((col) => (
                                         <TableCell key={`${row.date}-${col.key}`} className="whitespace-nowrap px-2 py-1 text-xs">
@@ -172,19 +200,12 @@ const StockDataTable: FC = () => {
                         ) : (
                             <TableRow>
                                 <TableCell colSpan={columns.length} className="h-24 text-center">
-                                    No data available.
+                                    No data available for this stock.
                                 </TableCell>
                             </TableRow>
                         )}
                     </TableBody>
-                    {/* Optional Footer */}
-                     {/* <TableFooter>
-                       <TableRow>
-                         <TableCell colSpan={3}>Total</TableCell>
-                         <TableCell className="text-right">$2,500.00</TableCell>
-                       </TableRow>
-                     </TableFooter> */}
-                </Table>
+                 </Table>
                 </div>
 
             </CardContent>
