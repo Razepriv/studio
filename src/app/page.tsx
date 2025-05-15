@@ -287,59 +287,43 @@ const StockDataTable: FC = () => {
                     </Button>
                 </div>
 
-                <div className="overflow-x-auto">
-                 <ScrollArea className={scrollAreaHeight}>
-                    <Table className="min-w-full divide-y divide-border">
-                        <TableCaption className="py-2 text-xs text-muted-foreground">
-                            Calculated stock data for {selectedStock}. Data sourced from Yahoo Finance. Displaying last 60 available days of up to 270 fetched.
-                        </TableCaption>
-                        <TableHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm">
-                            <TableRow className="hover:bg-transparent">
-                                {columns.map((col) => (
-                                    <TableHead
-                                        key={col.key}
-                                        className="whitespace-nowrap px-2 py-2 text-xs font-medium text-muted-foreground h-10 border-b border-border"
-                                        >
-                                        {col.label}
-                                    </TableHead>
-                                ))}
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody className="divide-y divide-border">
-                            {loading ? (
-                                Array.from({ length: 15 }).map((_, rowIndex) => (
-                                    <TableRow key={`skel-${rowIndex}`} className="hover:bg-muted/30">
-                                        {columns.map((col) => (
-                                            <TableCell key={`skel-${rowIndex}-${col.key}`} className="px-2 py-1 h-8">
-                                                <Skeleton className="h-4 w-full" />
-                                            </TableCell>
-                                        ))}
-                                    </TableRow>
-                                ))
-                            ) : stockDataForDisplay.length > 0 ? (
-                                [...stockDataForDisplay].reverse().map((row, rowIndex) => (
-                                    <TableRow key={row.date || `row-${rowIndex}`} className="hover:bg-muted/30 data-[state=selected]:bg-accent/50">
-                                        {columns.map((col) => (
-                                            <TableCell
-                                                key={`${row.date}-${col.key}`}
-                                                className="whitespace-nowrap px-2 py-1 text-xs h-8"
-                                                >
-                                                {formatValueForDisplay(row[col.key], col.key)}
-                                            </TableCell>
-                                        ))}
-                                    </TableRow>
-                                ))
-                            ) : (
-                                <TableRow>
-                                    <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
-                                        No data available for this stock or period.
-                                    </TableCell>
-                                </TableRow>
-                            )}
-                        </TableBody>
-                    </Table>
-                  </ScrollArea>
-                </div>
+                <CardContent className="p-0">
+  <div className="w-full overflow-x-auto">
+    <Table>
+      <TableHeader>
+        <TableRow>
+          {columns.map(col => (
+            <TableHead key={col.key}>{col.label}</TableHead>
+          ))}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {loading ? (
+          [...Array(10)].map((_, i) => (
+            <TableRow key={i}>
+              {columns.map((col, j) => (
+                <TableCell key={j}>
+                  <Skeleton className="h-4 w-full" />
+                </TableCell>
+              ))}
+            </TableRow>
+          ))
+        ) : (
+          stockDataForDisplay.map((row, i) => (
+            <TableRow key={i}>
+              {columns.map((col, j) => (
+                <TableCell key={j}>
+                  {formatValueForDisplay(row[col.key], col.key)}
+                </TableCell>
+              ))}
+            </TableRow>
+          ))
+        )}
+      </TableBody>
+    </Table>
+  </div>
+</CardContent>
+
             </CardContent>
         </Card>
     );
