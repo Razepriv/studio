@@ -1,3 +1,4 @@
+
 import type { StockData } from '@/services/stock-data';
 
 export interface CalculatedStockData extends StockData {
@@ -26,8 +27,52 @@ export interface CalculatedStockData extends StockData {
     'Volume > 150%': boolean | null; // Volume > 1.5 * AvgVolume
     'LongTarget': number | null; // Calculated Long Target/Exit
     'ShortTarget': number | null; // Calculated Short Target/Exit
-    // Renko related fields omitted for now due to unclear logic
 }
+
+// --- Start of W.Change specific types ---
+export interface WChangeAnalysisInput {
+    stockName: string;
+    dailyData: CalculatedStockData[]; // Chronological, latest last. Expects at least 2 recent records.
+    r5Trend?: 'R' | 'D' | null;       // Optional: User-defined rising/declining trend
+    l5Validation?: boolean;           // Optional: User-defined validation flag
+}
+
+export interface WChangeAnalysisOutput {
+    tickerName: string;
+    latestDate: string | null;         // Date of T
+
+    averageMetric: number | null;      // Using ATR[T]
+    fivePercentThreshold: number | null;
+
+    // Data points for T and T-1 used in triggers
+    jnsarT: number | null;
+    jnsarTminus1: number | null;
+    closeT: number | null;
+    closeTminus1: number | null;
+    
+    // Raw data for the last 5 days for context if needed by UI later
+    last5DayVolumes: (number | null)[];
+    last5DayJNSAR: (number | null)[];
+    last5DayClose: (number | null)[];
+    last5DayOHLC: StockData[];
+
+
+    // Trigger flags
+    isGreenJNSARTrigger: boolean;
+    isRedJNSARTrigger: boolean;
+
+    // Assumed external flags (passed in or defaulted)
+    currentTrend: 'R' | 'D' | null;
+    validationFlag: boolean;
+
+    // Derived flags
+    isConfirmedGreenTrend: boolean;
+    isStrongGreenSignal: boolean;
+    isConfirmedRedTrend: boolean;
+    isStrongRedSignal: boolean;
+}
+// --- End of W.Change specific types ---
+
 
 /**
  * Calculates Simple Moving Average (SMA).
@@ -198,12 +243,8 @@ function calculateAtrSeries(data: StockData[], period: number = 14): (number | n
         if (prevAtr !== null && currentTR !== null) {
             atrArrayFull[i] = ((prevAtr * (period - 1)) + currentTR) / period;
         } else if (prevAtr !== null) {
-             // If current TR is null, carry forward previous ATR? Or set to null?
-             // Carrying forward seems more common for ATR.
              atrArrayFull[i] = prevAtr;
-             // atrArrayFull[i] = null; // Alternative: propagate null
         }
-        // If prevATR is null, atrArrayFull[i] remains null
     }
 
     return atrArrayFull;
@@ -229,10 +270,10 @@ function calculatePivotPointsForDay(prevDayData: StockData | undefined): { [key:
     const l1 = (2 * pp) - high;
     const h2 = pp + range;
     const l2 = pp - range;
-    const h3 = h1 + range; // More common variation: h3 = high + 2 * (pp - low);
-    const l3 = l1 - range; // More common variation: l3 = low - 2 * (high - pp);
-    const h4 = h2 + range; // Variation: h4 = h3 + range;
-    const l4 = l2 - range; // Variation: l4 = l3 - range;
+    const h3 = h1 + range; 
+    const l3 = l1 - range; 
+    const h4 = h2 + range; 
+    const l4 = l2 - range; 
 
 
     return { PP: pp, H1: h1, L1: l1, H2: h2, L2: l2, H3: h3, L3: l3, H4: h4, L4: l4 };
@@ -240,7 +281,6 @@ function calculatePivotPointsForDay(prevDayData: StockData | undefined): { [key:
 
 /**
  * Placeholder for JNSAR calculation - Parabolic SAR like logic.
- * !! THIS IS A PLACEHOLDER - VERIFY AND REPLACE WITH YOUR ACTUAL JNSAR LOGIC !!
  * Added more robust handling of missing data.
  */
 function calculateJnsarSeries(data: StockData[], atrSeries: (number | null)[], atrPeriod: number = 14, factor: number = 2): (number | null)[] {
@@ -249,32 +289,28 @@ function calculateJnsarSeries(data: StockData[], atrSeries: (number | null)[], a
         return sarArray;
     }
 
-    // Find the first index with valid high/low data
      let startIndex = data.findIndex(d => typeof d?.low === 'number' && typeof d?.high === 'number');
-     if (startIndex === -1 || startIndex >= data.length -1) return sarArray; // Not enough valid data to start
+     if (startIndex === -1 || startIndex >= data.length -1) return sarArray; 
 
 
     const trend: (1 | -1 | null)[] = Array(data.length).fill(null);
     const ep: (number | null)[] = Array(data.length).fill(null); // Extreme Point
     const af: (number | null)[] = Array(data.length).fill(null); // Acceleration Factor
 
-    // Initial values at startIndex
-    // Determine initial trend based on the second day's movement relative to the first, if possible
     if (startIndex + 1 < data.length &&
         typeof data[startIndex+1]?.close === 'number' &&
         typeof data[startIndex]?.close === 'number') {
         if (data[startIndex+1].close > data[startIndex].close) {
-            trend[startIndex] = 1; // Assume initial uptrend
-            sarArray[startIndex] = data[startIndex].low; // SAR below price
+            trend[startIndex] = 1; 
+            sarArray[startIndex] = data[startIndex].low; 
             ep[startIndex] = data[startIndex].high;
         } else {
-            trend[startIndex] = -1; // Assume initial downtrend
-            sarArray[startIndex] = data[startIndex].high; // SAR above price
+            trend[startIndex] = -1; 
+            sarArray[startIndex] = data[startIndex].high; 
             ep[startIndex] = data[startIndex].low;
         }
-        af[startIndex] = 0.02; // Initial AF
+        af[startIndex] = 0.02; 
     } else {
-        // Not enough data to determine initial trend, cannot start calculation
         return sarArray;
     }
 
@@ -292,13 +328,11 @@ function calculateJnsarSeries(data: StockData[], atrSeries: (number | null)[], a
         const prevHigh = data[i-1]?.high;
         const prevPrevHigh = (i > 1) ? data[i-2]?.high : undefined;
 
-        // Check if necessary data for calculation exists
          if (prevSar === null || prevTrend === null || prevEp === null || prevAf === null ||
              typeof currentHigh !== 'number' || typeof currentLow !== 'number' ||
              typeof prevLow !== 'number' || typeof prevHigh !== 'number') {
-             // Cannot calculate, propagate null state or previous state?
              sarArray[i] = null;
-             trend[i] = prevTrend; // Carry forward trend assumption
+             trend[i] = prevTrend; 
              ep[i] = prevEp;
              af[i] = prevAf;
              continue;
@@ -306,61 +340,47 @@ function calculateJnsarSeries(data: StockData[], atrSeries: (number | null)[], a
 
         let currentSar: number;
 
-        if (prevTrend === 1) { // If uptrend
+        if (prevTrend === 1) { 
             currentSar = prevSar + prevAf * (prevEp - prevSar);
-
-            // SAR cannot be higher than the low of the previous one or two periods
              const low1 = prevLow;
              const low2 = (typeof prevPrevLow === 'number') ? prevPrevLow : prevLow;
              currentSar = Math.min(currentSar, low1, low2);
 
 
-            if (currentLow < currentSar) { // Trend reverses to short
+            if (currentLow < currentSar) { 
                 trend[i] = -1;
-                currentSar = prevEp; // SAR becomes the previous Extreme Point High
+                currentSar = prevEp; 
                 ep[i] = currentLow;
-                af[i] = 0.02; // Reset AF
-            } else { // Trend continues long
+                af[i] = 0.02; 
+            } else { 
                 trend[i] = 1;
-                // Update EP only if current high is higher than previous EP
                 ep[i] = Math.max(prevEp, currentHigh);
-                // Increase AF if new EP is made, capped at 0.20
                 af[i] = (ep[i] > prevEp) ? Math.min(0.2, prevAf + 0.02) : prevAf;
-                // SAR calculation already done above for continuing trend
             }
-        } else { // If downtrend (prevTrend === -1)
+        } else { 
             currentSar = prevSar - prevAf * (prevSar - prevEp);
-
-             // SAR cannot be lower than the high of the previous one or two periods
              const high1 = prevHigh;
              const high2 = (typeof prevPrevHigh === 'number') ? prevPrevHigh : prevHigh;
              currentSar = Math.max(currentSar, high1, high2);
 
-
-            if (currentHigh > currentSar) { // Trend reverses to long
+            if (currentHigh > currentSar) { 
                 trend[i] = 1;
-                currentSar = prevEp; // SAR becomes the previous Extreme Point Low
+                currentSar = prevEp; 
                 ep[i] = currentHigh;
-                af[i] = 0.02; // Reset AF
-            } else { // Trend continues short
+                af[i] = 0.02; 
+            } else { 
                 trend[i] = -1;
-                // Update EP only if current low is lower than previous EP
                 ep[i] = Math.min(prevEp, currentLow);
-                 // Increase AF if new EP is made, capped at 0.20
                 af[i] = (ep[i] < prevEp) ? Math.min(0.2, prevAf + 0.02) : prevAf;
-                // SAR calculation already done above for continuing trend
             }
         }
          sarArray[i] = currentSar;
     }
-
     return sarArray;
 }
 
 /**
  * Calculates Long and Short Target/Exit points.
- * !! THIS IS A PLACEHOLDER - VERIFY AND REPLACE WITH YOUR ACTUAL TARGET LOGIC !!
- * Example: Using Pivot Points (PP) and ATR.
  */
 function calculateTargets(
     pivotPoint: number | null,
@@ -371,51 +391,28 @@ function calculateTargets(
     let longTarget: number | null = null;
     let shortTarget: number | null = null;
 
-    // Example logic: Long target = Entry + ATR? Short Target = Entry - ATR?
-    // Or based on next resistance/support?
-    // Needs clarification from the source spreadsheet logic.
-
-    // Placeholder: LongTarget = H1, ShortTarget = L1 (Just an example, likely incorrect)
-    // if (pivotPoint !== null && atr !== null) {
-    //     longTarget = pivotPoint + atr; // Example: PP + ATR
-    //     shortTarget = pivotPoint - atr; // Example: PP - ATR
-    // }
-
-    // Example 2: Target based on entry price +/- ATR
     if (longEntry !== null && atr !== null) {
-       // longTarget = longEntry + atr; // Simple example
-       // Maybe based on next pivot? e.g., if longEntry is L1, target is PP or H1?
-       // Needs precise definition. Let's use entry + atr for now.
        longTarget = longEntry + atr;
     }
      if (shortEntry !== null && atr !== null) {
-       // shortTarget = shortEntry - atr; // Simple example
-       // Maybe based on next pivot? e.g., if shortEntry is H1, target is PP or L1?
-       // Needs precise definition. Let's use entry - atr for now.
        shortTarget = shortEntry - atr;
     }
-
-
     return { LongTarget: longTarget, ShortTarget: shortTarget };
 }
 
 
 /**
  * Processes raw stock data to add calculated indicators.
- * @param rawData Array of raw StockData. Dates are assumed to be part of StockData.
- * @param dates Array of dates corresponding to rawData (might be redundant).
- * @returns Array of CalculatedStockData.
  */
-export function processStockData(rawData: StockData[], dates: string[] /* dates param might be redundant */): CalculatedStockData[] {
+export function processStockData(rawData: StockData[], dates: string[]): CalculatedStockData[] {
     if (!rawData || rawData.length === 0) {
         return [];
     }
 
-    // Ensure rawData has dates and potentially filter/sort if necessary
     const dataWithDates = rawData
         .map((d, i) => ({ ...d, date: d.date || dates[i] }))
-        .filter(d => d.date) // Ensure date exists
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()); // Ensure chronological order
+        .filter(d => d.date) 
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()); 
 
 
     const closePrices = dataWithDates.map(d => d.close);
@@ -428,19 +425,15 @@ export function processStockData(rawData: StockData[], dates: string[] /* dates 
     const hema5 = calculateEmaSeries(highPrices, 5);
     const atr14 = calculateAtrSeries(dataWithDates, 14);
     const jnsar = calculateJnsarSeries(dataWithDates, atr14);
-    const avgVolume20 = calculateSmaSeries(volumes, 20); // Example: 20-day avg volume
+    const avgVolume20 = calculateSmaSeries(volumes, 20); 
 
     const calculatedData: CalculatedStockData[] = dataWithDates.map((dayData, index) => {
-        // Calculate pivots based on *previous* day's data
         const prevDayData = index > 0 ? dataWithDates[index - 1] : undefined;
         const pivots = calculatePivotPointsForDay(prevDayData);
 
-        // !! VERIFY THESE ENTRY POINT FORMULAS FROM YOUR SHEET !!
-        // Often L1 for Long, H1 for Short, but could be different.
-        const longEntry = pivots['L1']; // Example: Buy at L1
-        const shortEntry = pivots['H1']; // Example: Sell at H1
+        const longEntry = pivots['L1']; 
+        const shortEntry = pivots['H1']; 
 
-        // Calculate HH, LL, CL based on current day vs previous day
         const prevHigh = prevDayData?.high;
         const prevLow = prevDayData?.low;
         const prevClose = prevDayData?.close;
@@ -449,22 +442,18 @@ export function processStockData(rawData: StockData[], dates: string[] /* dates 
         const currentLow = dayData.low;
         const currentClose = dayData.close;
 
-        // Ensure comparison values are numbers before comparing
         const hh = (typeof currentHigh === 'number' && typeof prevHigh === 'number' && currentHigh > prevHigh) ? 'Y' : '0';
         const ll = (typeof currentLow === 'number' && typeof prevLow === 'number' && currentLow < prevLow) ? 'Y' : '0';
         const cl = (typeof currentClose === 'number' && typeof prevClose === 'number' && currentClose < prevClose) ? 'Y' : '0';
 
-        // Calculate Diff (High - Low) for the current day
         const diff = (typeof currentHigh === 'number' && typeof currentLow === 'number') ? currentHigh - currentLow : null;
 
-        // Calculate Volume > 150%
         const currentVolume = dayData.volume;
         const avgVol = avgVolume20[index];
         const volumeCheck = (typeof currentVolume === 'number' && typeof avgVol === 'number' && avgVol > 0)
             ? currentVolume > (avgVol * 1.5)
             : null;
 
-         // Calculate Targets (based on today's ATR and previous day's pivots/entries)
          const currentAtr = atr14[index];
          const { LongTarget, ShortTarget } = calculateTargets(pivots['PP'], currentAtr, longEntry, shortEntry);
 
@@ -475,7 +464,7 @@ export function processStockData(rawData: StockData[], dates: string[] /* dates 
             '5-LEMA': lema5[index] ?? null,
             '5-HEMA': hema5[index] ?? null,
             'ATR': currentAtr ?? null,
-            'PP': pivots['PP'] ?? null, // Pivot calculated from prev day
+            'PP': pivots['PP'] ?? null, 
             'H1': pivots['H1'] ?? null,
             'L1': pivots['L1'] ?? null,
             'H2': pivots['H2'] ?? null,
@@ -485,8 +474,8 @@ export function processStockData(rawData: StockData[], dates: string[] /* dates 
             'H4': pivots['H4'] ?? null,
             'L4': pivots['L4'] ?? null,
             'JNSAR': jnsar[index] ?? null,
-            'Long@': longEntry ?? null,   // Based on previous day's pivots
-            'Short@': shortEntry ?? null, // Based on previous day's pivots
+            'Long@': longEntry ?? null,   
+            'Short@': shortEntry ?? null, 
             'HH': hh,
             'LL': ll,
             'CL': cl,
@@ -497,9 +486,92 @@ export function processStockData(rawData: StockData[], dates: string[] /* dates 
             'ShortTarget': ShortTarget,
         };
     });
-
-     // The first row will have nulls for pivots, entries, targets, avg vol (depending on period), vol check.
-     // Decide whether to filter it out or display with nulls.
-     // Returning all rows for now.
     return calculatedData;
 }
+
+
+/**
+ * Analyzes daily stock data for W.Change specific signals.
+ */
+export function analyzeForWChange(input: WChangeAnalysisInput): WChangeAnalysisOutput | null {
+    const { stockName, dailyData, r5Trend, l5Validation } = input;
+
+    if (dailyData.length < 2) { // Need at least T and T-1
+        return null;
+    }
+
+    // T is the last element, T-1 is the second to last
+    const tData = dailyData[dailyData.length - 1];
+    const tMinus1Data = dailyData[dailyData.length - 2];
+
+    if (!tData || !tMinus1Data) return null;
+
+    const averageMetric = tData['ATR'] ?? null; // Using ATR[T] as Average Metric
+    const fivePercentThreshold = averageMetric !== null ? averageMetric * 0.05 : null;
+
+    const jnsarT = tData['JNSAR'] ?? null;
+    const jnsarTminus1 = tMinus1Data['JNSAR'] ?? null;
+    const closeT = tData.close ?? null;
+    const closeTminus1 = tMinus1Data.close ?? null;
+
+    let isGreenJNSARTrigger = false;
+    if (jnsarTminus1 !== null && closeTminus1 !== null && jnsarT !== null && closeT !== null) {
+        if (jnsarTminus1 > closeTminus1 && jnsarT < closeT) {
+            isGreenJNSARTrigger = true;
+        }
+    }
+
+    let isRedJNSARTrigger = false;
+    if (jnsarTminus1 !== null && closeTminus1 !== null && jnsarT !== null && closeT !== null) {
+        if (jnsarTminus1 < closeTminus1 && jnsarT > closeT) {
+            isRedJNSARTrigger = true;
+        }
+    }
+    
+    const currentTrend = r5Trend ?? null; // Default to null if not provided
+    const validationFlag = l5Validation ?? false; // Default to false if not provided
+
+    const isConfirmedGreenTrend = isGreenJNSARTrigger && currentTrend === 'R';
+    const isStrongGreenSignal = isConfirmedGreenTrend && validationFlag;
+    const isConfirmedRedTrend = isRedJNSARTrigger && currentTrend === 'D';
+    const isStrongRedSignal = isConfirmedRedTrend && validationFlag;
+
+    // Extract last 5 days of relevant data for context
+    const last5DaysData = dailyData.slice(-5);
+    const last5DayVolumes = last5DaysData.map(d => d.volume ?? null);
+    const last5DayJNSAR = last5DaysData.map(d => d['JNSAR'] ?? null);
+    const last5DayClose = last5DaysData.map(d => d.close ?? null);
+    const last5DayOHLC = last5DaysData.map(d => ({
+        date: d.date,
+        open: d.open,
+        high: d.high,
+        low: d.low,
+        close: d.close,
+        volume: d.volume,
+    }));
+
+
+    return {
+        tickerName: stockName,
+        latestDate: tData.date ?? null,
+        averageMetric,
+        fivePercentThreshold,
+        jnsarT,
+        jnsarTminus1,
+        closeT,
+        closeTminus1,
+        last5DayVolumes,
+        last5DayJNSAR,
+        last5DayClose,
+        last5DayOHLC,
+        isGreenJNSARTrigger,
+        isRedJNSARTrigger,
+        currentTrend,
+        validationFlag,
+        isConfirmedGreenTrend,
+        isStrongGreenSignal,
+        isConfirmedRedTrend,
+        isStrongRedSignal,
+    };
+}
+
