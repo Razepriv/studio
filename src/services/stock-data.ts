@@ -40,15 +40,19 @@ export interface StockData {
  * @param ticker The stock ticker symbol (e.g., 'AAPL', 'ABCAPITAL.NS'). Ensure it includes the necessary suffix like '.NS' for NSE stocks if required by the API.
  * @param days The number of historical days to fetch. Defaults to 60.
  * @returns A promise that resolves to an array of StockData objects.
+ * @param endDate Optional end date in 'yyyy-MM-dd' format. If provided, data will be fetched up to this date.
  * @throws Throws an error if the API call fails or returns an error status.
  */
-export async function getStockData(ticker: string, days: number = 60): Promise<StockData[]> {
+export async function getStockData(ticker: string, days: number = 60, endDate?: string): Promise<StockData[]> {
   console.log(`Fetching stock data for: ${ticker} via API route`);
 
   const params = new URLSearchParams({
     ticker: ticker,
     days: days.toString(),
   });
+  if (endDate) {
+    params.append('endDate', endDate);
+  }
 
   try {
     // Construct the full URL for the API route

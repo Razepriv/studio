@@ -2,6 +2,7 @@
 'use client';
 
 import type { FC } from 'react';
+import type { DateSelectEventHandler } from 'react-day-picker';
 import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -10,10 +11,14 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { format } from 'date-fns';
 import { getStockData, type StockData } from '@/services/stock-data';
 import { processStockData, analyzeForWChange, type CalculatedStockData, type WChangeAnalysisOutput } from '@/lib/calculations';
 import { useToast } from "@/hooks/use-toast";
+import { CalendarIcon } from "lucide-react";
 import { CheckCircle, XCircle, AlertTriangle, TrendingUp, TrendingDown, ShieldCheck, Download } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 
 // Full list of 165 stocks (after removing commented items and duplicates)
 const ALL_POSSIBLE_STOCKS = [
@@ -44,6 +49,8 @@ const WChangePage: FC = () => {
   const { toast } = useToast();
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [processedCount, setProcessedCount] = useState(0);
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
+  const [filteredAnalysisResults, setFilteredAnalysisResults] = useState<WChangeAnalysisOutput[]>([]); // Store filtered results for display and download
 
   useEffect(() => {
     const fetchAndAnalyzeData = async () => {
@@ -53,12 +60,16 @@ const WChangePage: FC = () => {
       const results: WChangeAnalysisOutput[] = [];
       const totalStocks = ALL_POSSIBLE_STOCKS.length;
 
+      const endDate = selectedDate ? format(selectedDate, 'yyyy-MM-dd') : undefined;
+
       for (let i = 0; i < totalStocks; i++) {
         const stockTicker = ALL_POSSIBLE_STOCKS[i];
         try {
           // Fetch ~30-40 days for indicator stability, analyzeForWChange uses latest
-          const rawData: StockData[] = await getStockData(stockTicker, 30); 
-          if (rawData && rawData.length > 0) {
+          const rawData: StockData[] = await getStockData(stockTicker,
+            30 // Fetch 30 days of data
+); 
+          if (rawData && rawData.length > 0) { // Ensure we have data to process
             const dates = rawData.map(d => d.date);
             // processStockData calculates daily indicators like JNSAR, ATR, Close etc.
             const dailyCalculatedData: CalculatedStockData[] = processStockData(rawData, dates);
@@ -79,8 +90,7 @@ const WChangePage: FC = () => {
         }
         setProcessedCount(prevCount => prevCount + 1);
       }
-      setAnalysisResults(results);
-      setLoading(false);
+      
       if (results.length === 0 && totalStocks > 0 && !error) {
          toast({
             title: "Analysis Complete",
@@ -92,28 +102,41 @@ const WChangePage: FC = () => {
             description: `Successfully analyzed ${results.length} stocks for W.Change signals.`,
         });
       }
-    };
 
-    fetchAndAnalyzeData();
-  }, [toast]);
+      setAnalysisResults(results); // Set analysis results after fetching and processing
+      setLoading(false);
+    };
+    fetchAndAnalyzeData(); // Initial fetch and analysis
+  }, [selectedDate, toast, ALL_POSSIBLE_STOCKS]); // Re-run when selectedDate changes, toast is available, or stocks list changes
+
+  // Filter analysis results based on the selected date whenever selectedDate or analysisResults changes
+  useEffect(() => {
+    const filtered = selectedDate
+      ? analysisResults.filter(analysis => {
+          // Assuming analysis.date is in 'yyyy-MM-dd' format
+          return analysis.date === format(selectedDate, 'yyyy-MM-dd');
+        })
+      : analysisResults; // Show all if no date is selected
+    setFilteredAnalysisResults(filtered);
+  }, [selectedDate, analysisResults]);
 
   const renderTickerList = (tickers: string[]) => {
-    if (tickers.length === 0) return <p className="text-sm text-muted-foreground">None</p>;
-    return (
-      <div className="flex flex-wrap gap-2">
-        {tickers.map(ticker => <Badge key={ticker} variant="secondary">{ticker}</Badge>)}
-      </div>
-    );
+ return (
+ <div className="flex flex-wrap gap-2">
+ {tickers.map(ticker => <Badge key={ticker} variant="secondary">{ticker}</Badge>)}
+ </div>
+ );
   };
 
-  const greenJNSARTickers = analysisResults.filter(r => r.isGreenJNSARTrigger).map(r => r.tickerName);
-  const redJNSARTickers = analysisResults.filter(r => r.isRedJNSARTrigger).map(r => r.tickerName);
-  const confirmedGreenTrendTickers = analysisResults.filter(r => r.isConfirmedGreenTrend).map(r => r.tickerName);
-  const strongGreenSignalTickers = analysisResults.filter(r => r.isStrongGreenSignal).map(r => r.tickerName);
-  const confirmedRedTrendTickers = analysisResults.filter(r => r.isConfirmedRedTrend).map(r => r.tickerName);
-  const strongRedSignalTickers = analysisResults.filter(r => r.isStrongRedSignal).map(r => r.tickerName);
+ const greenJNSARTickers = filteredAnalysisResults.filter(r => r.isGreenJNSARTrigger).map(r => r.tickerName);
+  const redJNSARTickers = filteredAnalysisResults.filter(r => r.isRedJNSARTrigger).map(r => r.tickerName);
+  const confirmedGreenTrendTickers = filteredAnalysisResults.filter(r => r.isConfirmedGreenTrend).map(r => r.tickerName);
+  const strongGreenSignalTickers = filteredAnalysisResults.filter(r => r.isStrongGreenSignal).map(r => r.tickerName);
+  const confirmedRedTrendTickers = filteredAnalysisResults.filter(r => r.isConfirmedRedTrend).map(r => r.tickerName);
+  const strongRedSignalTickers = filteredAnalysisResults.filter(r => r.isStrongRedSignal).map(r => r.tickerName);
 
   const handleDownloadExcel = () => {
+
     if (isDownloading || analysisResults.length === 0) {
       toast({ title: "Download Info", description: isDownloading ? "Download already in progress." : "No analysis data to download." });
       return;
@@ -124,34 +147,34 @@ const WChangePage: FC = () => {
     try {
       const workbook = XLSX.utils.book_new();
 
-      const createSheetData = (tickers: string[]) => tickers.map(ticker => ({ Ticker: ticker }));
+      // Create a sheet for the filtered analysis results with all details
+      const sheetData = filteredAnalysisResults.map(analysis => ({
+        'Ticker': analysis.tickerName,
+        'Date': analysis.date,
+        'Average Metric': analysis.averageMetric,
+        '5% Threshold': analysis.fivePercentThreshold,
+        'Latest JNSAR': analysis.latestJNSAR,
+        'Previous JNSAR': analysis.previousJNSAR,
+        'Latest Close': analysis.latestClose,
+        'Previous Close': analysis.previousClose,
+        'Current Trend (R/D)': analysis.r5Trend, // Assuming r5Trend is the current trend source
+        'Validation Flag': analysis.l5Validation, // Assuming l5Validation is the validation flag source
+        'Green JNSAR Trigger': analysis.isGreenJNSARTrigger ? 'TRUE' : 'FALSE',
+        'Red JNSAR Trigger': analysis.isRedJNSARTrigger ? 'TRUE' : 'FALSE',
+        'Confirmed Green Trend': analysis.isConfirmedGreenTrend ? 'TRUE' : 'FALSE',
+        'Strong Green Signal': analysis.isStrongGreenSignal ? 'TRUE' : 'FALSE',
+        'Confirmed Red Trend': analysis.isConfirmedRedTrend ? 'TRUE' : 'FALSE',
+        'Strong Red Signal': analysis.isStrongRedSignal ? 'TRUE' : 'FALSE',
+        // Add other relevant fields from WChangeAnalysisOutput if needed
+        // For example, if you want daily data points used for analysis:
+        // 'Daily Data (JSON)': JSON.stringify(analysis.dailyData), // Convert array/object to string
+        // This might be too much data, consider adding specific daily metrics if crucial
+        // e.g., 'Day T Close': analysis.dailyData[analysis.dailyData.length - 1]?.Close,
+        // 'Day T JNSAR': analysis.dailyData[analysis.dailyData.length - 1]?.JNSAR,
+        // 'Day T-1 Close': analysis.dailyData[analysis.dailyData.length - 2]?.Close,
+      }));
 
-      if (greenJNSARTickers.length > 0) {
-        const wsGreenJNSAR = XLSX.utils.json_to_sheet(createSheetData(greenJNSARTickers));
-        XLSX.utils.book_append_sheet(workbook, wsGreenJNSAR, "Green JNSAR");
-      }
-      if (redJNSARTickers.length > 0) {
-        const wsRedJNSAR = XLSX.utils.json_to_sheet(createSheetData(redJNSARTickers));
-        XLSX.utils.book_append_sheet(workbook, wsRedJNSAR, "Red JNSAR");
-      }
-      if (confirmedGreenTrendTickers.length > 0) {
-        const wsConfirmedGreen = XLSX.utils.json_to_sheet(createSheetData(confirmedGreenTrendTickers));
-        XLSX.utils.book_append_sheet(workbook, wsConfirmedGreen, "Confirmed Green Trend");
-      }
-      if (strongGreenSignalTickers.length > 0) {
-        const wsStrongGreen = XLSX.utils.json_to_sheet(createSheetData(strongGreenSignalTickers));
-        XLSX.utils.book_append_sheet(workbook, wsStrongGreen, "Strong Green Signal");
-      }
-      if (confirmedRedTrendTickers.length > 0) {
-        const wsConfirmedRed = XLSX.utils.json_to_sheet(createSheetData(confirmedRedTrendTickers));
-        XLSX.utils.book_append_sheet(workbook, wsConfirmedRed, "Confirmed Red Trend");
-      }
-      if (strongRedSignalTickers.length > 0) {
-        const wsStrongRed = XLSX.utils.json_to_sheet(createSheetData(strongRedSignalTickers));
-        XLSX.utils.book_append_sheet(workbook, wsStrongRed, "Strong Red Signal");
-      }
-      
-      if (workbook.SheetNames.length === 0) {
+      if (sheetData.length === 0) {
         toast({ variant: "destructive", title: "Download Error", description: "No categorized tickers to export." });
         setIsDownloading(false);
         return;
@@ -160,7 +183,8 @@ const WChangePage: FC = () => {
       XLSX.writeFile(workbook, `WChange_Analysis_Report.xlsx`);
       toast({ title: "Download Complete", description: `W.Change analysis report downloaded.` });
 
-    } catch (e: any) {
+    }
+    catch (e: any) {
       console.error("Error generating W.Change Excel:", e);
       toast({ variant: "destructive", title: "Download Error", description: e.message || "Could not generate Excel file." });
     } finally {
@@ -174,8 +198,20 @@ const WChangePage: FC = () => {
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <div>
             <CardTitle className="text-xl font-semibold text-foreground">W.Change Analysis</CardTitle>
-            <CardDescription>Analysis of stock data based on weekly change parameters. Please wait while all {ALL_POSSIBLE_STOCKS.length} stocks are processed.</CardDescription>
+            <CardDescription>Analysis of stock data based on weekly change parameters.</CardDescription>
              {loading && <CardDescription>Processed {processedCount} of {ALL_POSSIBLE_STOCKS.length} stocks...</CardDescription>}
+          </div>
+          {/* Date Picker and Download */}
+          <div className="flex items-center space-x-4">
+             <Popover>
+                <PopoverTrigger asChild>
+                <Button variant={"outline"} className={`w-[180px] justify-start text-left font-normal ${!selectedDate && "text-muted-foreground"}`}>
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {selectedDate ? selectedDate.toDateString() : "Pick a date"}
+                </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0"><Calendar mode="single" selected={selectedDate} onSelect={setSelectedDate as DateSelectEventHandler} initialFocus /></PopoverContent>
+            </Popover>
           </div>
           <Button onClick={handleDownloadExcel} disabled={isDownloading || loading || analysisResults.length === 0} className="h-9 text-sm">
             <Download className="mr-2 h-4 w-4" />
