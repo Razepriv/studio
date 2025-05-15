@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { getStockData, type StockData } from '@/services/stock-data';
 import { processStockData, analyzeForWChange, type CalculatedStockData, type WChangeAnalysisOutput } from '@/lib/calculations';
 import { useToast } from "@/hooks/use-toast";
@@ -33,8 +34,7 @@ const ALL_POSSIBLE_STOCKS = [
     'SAIL', 'SUNPHARMA', 'SUNTV', 'SYNGENE', 'TATACONSUM', 'TATAMOTORS', /* 'TATAMTRDVR', */ /* Usually less liquid, maybe omit */ 'TATAPOWER', 'TATASTEEL',
     'TCS', 'TECHM', 'TITAN', 'TORNTPHARM', 'TORNTPOWER', 'TRENT', 'TVSMOTOR', 'ULTRACEMCO', 'UBL', 'MCDOWELL-N', /* UNITED SPIRITS */
     'UPL', 'VEDL', 'VOLTAS', 'WHIRLPOOL', 'WIPRO', 'ZEEL', 'ZYDUSLIFE'
-    // Adding potentially missing but common ones if needed: BAJAJHLDNG, LTIM, M&M, M&MFIN, SAMVARDHANA, MAXFINANCIAL etc. - Added common variations
-].filter((v, i, a) => a.indexOf(v) === i).sort(); // Deduplicate and sort
+].filter((v, i, a) => a.indexOf(v) === i).sort();
 
 
 const WChangePage: FC = () => {
@@ -66,6 +66,7 @@ const WChangePage: FC = () => {
             const analysis = analyzeForWChange({
               stockName: stockTicker,
               dailyData: dailyCalculatedData,
+              // r5Trend and l5Validation are not sourced yet, defaults will apply
             });
 
             if (analysis) {
@@ -75,19 +76,12 @@ const WChangePage: FC = () => {
         } catch (err: any) {
           console.error(`Error processing ${stockTicker}:`, err);
           // Optionally, show a non-blocking toast for individual errors
-          // toast({
-          //   variant: "destructive",
-          //   title: `Error for ${stockTicker}`,
-          //   description: err.message || "Failed to fetch or process data.",
-          // });
         }
         setProcessedCount(prevCount => prevCount + 1);
       }
       setAnalysisResults(results);
       setLoading(false);
-      if (results.length === 0 && totalStocks > 0 && !error) { // Check if any error was set globally
-        // This message might appear if all stocks fail or return no valid data for analysis
-        // setError("No analysis results generated. Check if stock data is available for the selected tickers or if there were individual errors.");
+      if (results.length === 0 && totalStocks > 0 && !error) {
          toast({
             title: "Analysis Complete",
             description: "No specific W.Change signals were triggered for the analyzed stocks based on current criteria.",
@@ -180,7 +174,7 @@ const WChangePage: FC = () => {
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <div>
             <CardTitle className="text-xl font-semibold text-foreground">W.Change Analysis</CardTitle>
-            <CardDescription>Analysis of stock data based on weekly change parameters. Please wait while all stocks are processed.</CardDescription>
+            <CardDescription>Analysis of stock data based on weekly change parameters. Please wait while all {ALL_POSSIBLE_STOCKS.length} stocks are processed.</CardDescription>
              {loading && <CardDescription>Processed {processedCount} of {ALL_POSSIBLE_STOCKS.length} stocks...</CardDescription>}
           </div>
           <Button onClick={handleDownloadExcel} disabled={isDownloading || loading || analysisResults.length === 0} className="h-9 text-sm">
@@ -189,6 +183,27 @@ const WChangePage: FC = () => {
           </Button>
         </CardHeader>
       </Card>
+
+      <Accordion type="single" collapsible className="w-full mb-6 shadow border border-border rounded-lg p-4 bg-card">
+        <AccordionItem value="item-1" className="border-b-0">
+          <AccordionTrigger className="text-md font-medium hover:no-underline">Key Calculations Breakdown (T = Today, T-1 = Yesterday)</AccordionTrigger>
+          <AccordionContent>
+            <div className="space-y-2 text-sm pt-2 text-card-foreground">
+              <p><strong>Average Metric:</strong> Calculated as the latest Average True Range (ATR) value for day T.</p>
+              <p><strong>5% Threshold:</strong> Calculated as <code>Average Metric * 0.05</code> (Note: This threshold is calculated but not directly used in current public triggers).</p>
+              <p><strong>Data Points Used:</strong> The analysis primarily uses JNSAR and Closing prices for the current day (T) and the previous day (T-1).</p>
+              <p><strong>Green JNSAR Trigger:</strong> A stock triggers this if: <code>JNSAR[T-1] &gt; Close[T-1]</code> AND <code>JNSAR[T] &lt; Close[T]</code>. The ticker name is shown if triggered.</p>
+              <p><strong>Red JNSAR Trigger:</strong> A stock triggers this if: <code>JNSAR[T-1] &lt; Close[T-1]</code> AND <code>JNSAR[T] &gt; Close[T]</code>. The ticker name is shown if triggered.</p>
+              <p><strong>Current Trend (R/D):</strong> Based on an external data point or rule (e.g., 'R5' from a sheet). Currently, this defaults to a neutral state if not provided, meaning 'Confirmed Trend' signals might not activate unless this input is integrated.</p>
+              <p><strong>Validation Flag:</strong> Based on an external data point or rule (e.g., 'L5' from a sheet). Currently, this defaults to false if not provided, meaning 'Strong Signal' categorizations might not activate unless this input is integrated.</p>
+              <p><strong>Confirmed Green Trend:</strong> Triggered if a stock has a "Green JNSAR Trigger" AND its "Current Trend" is 'R' (Rising).</p>
+              <p><strong>Strong Green Signal:</strong> Triggered if a stock has a "Confirmed Green Trend" AND its "Validation Flag" is true.</p>
+              <p><strong>Confirmed Red Trend:</strong> Triggered if a stock has a "Red JNSAR Trigger" AND its "Current Trend" is 'D' (Declining).</p>
+              <p><strong>Strong Red Signal:</strong> Triggered if a stock has a "Confirmed Red Trend" AND its "Validation Flag" is true.</p>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
 
       {loading && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -300,3 +315,4 @@ const WChangePage: FC = () => {
 
 export default WChangePage;
 
+    
