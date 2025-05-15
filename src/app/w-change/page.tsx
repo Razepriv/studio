@@ -14,7 +14,7 @@ import { processStockData, analyzeForWChange, type CalculatedStockData, type WCh
 import { useToast } from "@/hooks/use-toast";
 import { CheckCircle, XCircle, AlertTriangle, TrendingUp, TrendingDown, ShieldCheck, Download } from 'lucide-react';
 
-// Full list of ~220 stocks (copied from page.tsx for now)
+// Full list of 165 stocks (after removing commented items and duplicates)
 const ALL_POSSIBLE_STOCKS = [
     'ABB', 'ACC', 'AARTIIND', 'ABCAPITAL', 'ABFRL', 'ADANIENT', 'ADANIGREEN', 'ADANIPORTS', /*'ADANITRANS',*/ 'ALKEM', // ADANITRANS likely delisted/merged, removed for now
     'AMBUJACEM', 'APOLLOHOSP', 'APOLLOTYRE', 'ASHOKLEY', 'ASIANPAINT', 'ASTRAL', 'ATUL', 'AUBANK', 'AUROPHARMA', 'AXISBANK',
@@ -300,5 +300,3 @@ const WChangePage: FC = () => {
 
 export default WChangePage;
 
-
-    

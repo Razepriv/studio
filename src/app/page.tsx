@@ -30,7 +30,7 @@ import { Download } from 'lucide-react';
 // Initial list of stocks - Subset of the full list below
 const INITIAL_STOCKS = ['ABB', 'ACC', 'AARTIIND', 'ABCAPITAL', 'ABFRL', 'ADANIENT', 'ADANIGREEN', 'ADANIPORTS', 'ALKEM', 'AMBUJACEM']; // Reduced for faster initial load
 
-// Full list of ~220 stocks extracted from the provided image
+// Full list of 165 stocks (after removing commented items and duplicates)
 const ALL_POSSIBLE_STOCKS = [
     'ABB', 'ACC', 'AARTIIND', 'ABCAPITAL', 'ABFRL', 'ADANIENT', 'ADANIGREEN', 'ADANIPORTS', /*'ADANITRANS',*/ 'ALKEM', // ADANITRANS likely delisted/merged, removed for now
     'AMBUJACEM', 'APOLLOHOSP', 'APOLLOTYRE', 'ASHOKLEY', 'ASIANPAINT', 'ASTRAL', 'ATUL', 'AUBANK', 'AUROPHARMA', 'AXISBANK',
