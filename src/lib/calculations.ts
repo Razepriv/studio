@@ -1,5 +1,7 @@
 
 import type { StockData } from '@/services/stock-data';
+import { isValid, parseISO, format, subDays } from 'date-fns';
+
 
 export interface CalculatedStockData extends StockData {
     // date is already in StockData
@@ -32,7 +34,7 @@ export interface CalculatedStockData extends StockData {
 // --- Start of W.Change specific types ---
 export interface WChangeAnalysisInput {
     stockName: string;
-    dailyData: CalculatedStockData[]; // Chronological, latest last. Expects at least 2 recent records.
+    dailyData: CalculatedStockData[]; // Chronological, latest last (should be T). Expects at least 2 recent records for T and T-1.
     r5Trend?: 'R' | 'D' | null;       // Optional: User-defined rising/declining trend
     l5Validation?: boolean;           // Optional: User-defined validation flag
 }
@@ -182,7 +184,7 @@ function calculateEmaSeries(data: (number | null | undefined)[], period: number)
 function calculateAtrSeries(data: StockData[], period: number = 14): (number | null)[] {
      const atrArrayFull: (number | null)[] = Array(data.length).fill(null);
 
-     if (!data || data.length < 2) {
+     if (!data || data.length < 2) { // Need at least one previous day for TR calculation
         return atrArrayFull;
     }
 
@@ -191,7 +193,8 @@ function calculateAtrSeries(data: StockData[], period: number = 14): (number | n
 
     for (let i = 0; i < data.length; i++) {
         const current = data[i];
-        const prev = i > 0 ? data[i - 1] : undefined;
+        // Previous day's close is needed for full TR. If it's the first day, TR is just High - Low.
+        const prev = i > 0 ? data[i - 1] : null; 
 
         if (typeof current?.high !== 'number' || typeof current?.low !== 'number') {
              trArray.push(null);
@@ -212,26 +215,28 @@ function calculateAtrSeries(data: StockData[], period: number = 14): (number | n
             firstValidTRIndex = i;
         }
     }
-
-     if (firstValidTRIndex === -1 || data.length < firstValidTRIndex + period) {
-        return atrArrayFull; // Not enough valid TR values to calculate ATR
+    
+     // Check if we have enough data points *after* the first valid TR to calculate an ATR
+     if (firstValidTRIndex === -1 || (trArray.length - firstValidTRIndex) < period) {
+        return atrArrayFull; 
     }
-
 
     // Calculate Simple Moving Average of the first 'period' TR values starting from firstValidTRIndex
     let sumTR = 0;
-    let validTRCount = 0;
+    let validTRsForInitialSma = 0;
     for (let i = firstValidTRIndex; i < firstValidTRIndex + period; i++) {
-         if (trArray[i] !== null) {
+         if (trArray[i] !== null) { // This check is slightly redundant given the outer check but good for safety
              sumTR += trArray[i]!;
-             validTRCount++;
+             validTRsForInitialSma++;
          }
     }
 
-    if (validTRCount < period) return atrArrayFull; // Need full period of valid TRs for first ATR
+    if (validTRsForInitialSma < period) return atrArrayFull; // Need full period of valid TRs for first ATR
 
 
     let firstAtrIndex = firstValidTRIndex + period - 1;
+    if(firstAtrIndex >= data.length) return atrArrayFull; // Not enough data points overall
+
     atrArrayFull[firstAtrIndex] = sumTR / period;
 
 
@@ -242,9 +247,10 @@ function calculateAtrSeries(data: StockData[], period: number = 14): (number | n
 
         if (prevAtr !== null && currentTR !== null) {
             atrArrayFull[i] = ((prevAtr * (period - 1)) + currentTR) / period;
-        } else if (prevAtr !== null) {
+        } else if (prevAtr !== null) { // If current TR is null, carry forward previous ATR (common practice)
              atrArrayFull[i] = prevAtr;
         }
+         // If prevAtr is null, current ATR remains null (shouldn't happen after firstAtrIndex)
     }
 
     return atrArrayFull;
@@ -311,6 +317,7 @@ function calculateJnsarSeries(data: StockData[], atrSeries: (number | null)[], a
         }
         af[startIndex] = 0.02; 
     } else {
+        // Not enough data to determine initial trend for SAR
         return sarArray;
     }
 
@@ -324,14 +331,17 @@ function calculateJnsarSeries(data: StockData[], atrSeries: (number | null)[], a
         const currentHigh = data[i]?.high;
         const currentLow = data[i]?.low;
         const prevLow = data[i-1]?.low;
-        const prevPrevLow = (i > 1) ? data[i-2]?.low : undefined;
+        const prevPrevLow = (i > 1) ? data[i-2]?.low : undefined; // Low of two days prior
         const prevHigh = data[i-1]?.high;
-        const prevPrevHigh = (i > 1) ? data[i-2]?.high : undefined;
+        const prevPrevHigh = (i > 1) ? data[i-2]?.high : undefined; // High of two days prior
+
 
          if (prevSar === null || prevTrend === null || prevEp === null || prevAf === null ||
              typeof currentHigh !== 'number' || typeof currentLow !== 'number' ||
              typeof prevLow !== 'number' || typeof prevHigh !== 'number') {
-             sarArray[i] = null;
+             // If essential previous data is missing, carry forward previous values if possible, or null out.
+             // This state implies a data gap or insufficient history for SAR calculation at this point.
+             sarArray[i] = prevSar; // Attempt to carry forward SAR, might be null
              trend[i] = prevTrend; 
              ep[i] = prevEp;
              af[i] = prevAf;
@@ -340,38 +350,40 @@ function calculateJnsarSeries(data: StockData[], atrSeries: (number | null)[], a
 
         let currentSar: number;
 
-        if (prevTrend === 1) { 
+        if (prevTrend === 1) { // Uptrend
             currentSar = prevSar + prevAf * (prevEp - prevSar);
+             // SAR cannot be higher than the low of the previous two periods
              const low1 = prevLow;
-             const low2 = (typeof prevPrevLow === 'number') ? prevPrevLow : prevLow;
+             const low2 = (typeof prevPrevLow === 'number') ? prevPrevLow : prevLow; // If T-2 low doesn't exist, use T-1 low
              currentSar = Math.min(currentSar, low1, low2);
 
 
-            if (currentLow < currentSar) { 
+            if (currentLow < currentSar) { // Trend reversal to Down
                 trend[i] = -1;
-                currentSar = prevEp; 
-                ep[i] = currentLow;
-                af[i] = 0.02; 
-            } else { 
+                currentSar = prevEp; // New SAR is the EP of the previous uptrend
+                ep[i] = currentLow; // New EP is the current low
+                af[i] = 0.02; // Reset AF
+            } else { // Continue Uptrend
                 trend[i] = 1;
-                ep[i] = Math.max(prevEp, currentHigh);
-                af[i] = (ep[i] > prevEp) ? Math.min(0.2, prevAf + 0.02) : prevAf;
+                ep[i] = Math.max(prevEp, currentHigh); // Update EP if new high
+                af[i] = (ep[i] > prevEp) ? Math.min(0.2, prevAf + 0.02) : prevAf; // Increment AF if EP changed
             }
-        } else { 
+        } else { // Downtrend (prevTrend === -1)
             currentSar = prevSar - prevAf * (prevSar - prevEp);
+            // SAR cannot be lower than the high of the previous two periods
              const high1 = prevHigh;
-             const high2 = (typeof prevPrevHigh === 'number') ? prevPrevHigh : prevHigh;
+             const high2 = (typeof prevPrevHigh === 'number') ? prevPrevHigh : prevHigh; // If T-2 high doesn't exist, use T-1 high
              currentSar = Math.max(currentSar, high1, high2);
 
-            if (currentHigh > currentSar) { 
+            if (currentHigh > currentSar) { // Trend reversal to Up
                 trend[i] = 1;
-                currentSar = prevEp; 
-                ep[i] = currentHigh;
-                af[i] = 0.02; 
-            } else { 
+                currentSar = prevEp; // New SAR is the EP of the previous downtrend
+                ep[i] = currentHigh; // New EP is the current high
+                af[i] = 0.02; // Reset AF
+            } else { // Continue Downtrend
                 trend[i] = -1;
-                ep[i] = Math.min(prevEp, currentLow);
-                af[i] = (ep[i] < prevEp) ? Math.min(0.2, prevAf + 0.02) : prevAf;
+                ep[i] = Math.min(prevEp, currentLow); // Update EP if new low
+                af[i] = (ep[i] < prevEp) ? Math.min(0.2, prevAf + 0.02) : prevAf; // Increment AF if EP changed
             }
         }
          sarArray[i] = currentSar;
@@ -403,32 +415,39 @@ function calculateTargets(
 
 /**
  * Processes raw stock data to add calculated indicators.
+ * Ensures data is sorted chronologically before processing.
  */
-export function processStockData(rawData: StockData[], dates: string[]): CalculatedStockData[] {
+export function processStockData(rawData: StockData[], dates?: string[]): CalculatedStockData[] {
     if (!rawData || rawData.length === 0) {
         return [];
     }
 
-    const dataWithDates = rawData
-        .map((d, i) => ({ ...d, date: d.date || dates[i] }))
-        .filter(d => d.date) 
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()); 
+    // Ensure data is sorted by date ascending
+    const sortedRawData = [...rawData].sort((a,b) => {
+        const dateA = parseISO(a.date);
+        const dateB = parseISO(b.date);
+        if (!isValid(dateA) || !isValid(dateB)) return 0; // Should not happen with good data
+        return dateA.getTime() - dateB.getTime();
+    });
+    
+    const dataWithValidDates = sortedRawData.filter(d => d.date && isValid(parseISO(d.date)));
+    if (dataWithValidDates.length === 0) return [];
 
 
-    const closePrices = dataWithDates.map(d => d.close);
-    const lowPrices = dataWithDates.map(d => d.low);
-    const highPrices = dataWithDates.map(d => d.high);
-    const volumes = dataWithDates.map(d => d.volume);
+    const closePrices = dataWithValidDates.map(d => d.close);
+    const lowPrices = dataWithValidDates.map(d => d.low);
+    const highPrices = dataWithValidDates.map(d => d.high);
+    const volumes = dataWithValidDates.map(d => d.volume);
 
     const ema5 = calculateEmaSeries(closePrices, 5);
     const lema5 = calculateEmaSeries(lowPrices, 5);
     const hema5 = calculateEmaSeries(highPrices, 5);
-    const atr14 = calculateAtrSeries(dataWithDates, 14);
-    const jnsar = calculateJnsarSeries(dataWithDates, atr14);
+    const atr14 = calculateAtrSeries(dataWithValidDates, 14); // Pass sorted data
+    const jnsar = calculateJnsarSeries(dataWithValidDates, atr14); // Pass sorted data
     const avgVolume20 = calculateSmaSeries(volumes, 20); 
 
-    const calculatedData: CalculatedStockData[] = dataWithDates.map((dayData, index) => {
-        const prevDayData = index > 0 ? dataWithDates[index - 1] : undefined;
+    const calculatedData: CalculatedStockData[] = dataWithValidDates.map((dayData, index) => {
+        const prevDayData = index > 0 ? dataWithValidDates[index - 1] : undefined;
         const pivots = calculatePivotPointsForDay(prevDayData);
 
         const longEntry = pivots['L1']; 
@@ -459,7 +478,7 @@ export function processStockData(rawData: StockData[], dates: string[]): Calcula
 
 
         return {
-            ...dayData,
+            ...dayData, // Includes original date, open, high, low, close, volume
             '5-EMA': ema5[index] ?? null,
             '5-LEMA': lema5[index] ?? null,
             '5-HEMA': hema5[index] ?? null,
@@ -492,19 +511,37 @@ export function processStockData(rawData: StockData[], dates: string[]): Calcula
 
 /**
  * Analyzes daily stock data for W.Change specific signals.
+ * Expects `dailyData` to be sorted chronologically with the latest data point (T) at the end.
  */
 export function analyzeForWChange(input: WChangeAnalysisInput): WChangeAnalysisOutput | null {
     const { stockName, dailyData, r5Trend, l5Validation } = input;
 
-    if (dailyData.length < 2) { // Need at least T and T-1
+    // Ensure dailyData is sorted chronologically if not already guaranteed by caller
+    const sortedDailyData = [...dailyData].sort((a,b) => {
+        const dateA = parseISO(a.date);
+        const dateB = parseISO(b.date);
+        if (!isValid(dateA) || !isValid(dateB)) return 0;
+        return dateA.getTime() - dateB.getTime();
+    });
+
+
+    if (sortedDailyData.length < 2) { // Need at least T and T-1
+        console.warn(`Not enough data for ${stockName} in analyzeForWChange. Required 2, got ${sortedDailyData.length}`);
         return null;
     }
 
     // T is the last element, T-1 is the second to last
-    const tData = dailyData[dailyData.length - 1];
-    const tMinus1Data = dailyData[dailyData.length - 2];
+    const tData = sortedDailyData[sortedDailyData.length - 1];
+    const tMinus1Data = sortedDailyData[sortedDailyData.length - 2];
 
-    if (!tData || !tMinus1Data) return null;
+    if (!tData || !tMinus1Data) {
+        console.warn(`Missing T or T-1 data for ${stockName} in analyzeForWChange.`);
+        return null;
+    }
+    
+    // Ensure dates are what we expect for T and T-1 for robust analysis
+    // This check is more for logical consistency if dailyData might have gaps
+    // For W.Report, if we select C.Day, T will be C.Day, T-1 will be C.Day-1
 
     const averageMetric = tData['ATR'] ?? null; // Using ATR[T] as Average Metric
     const fivePercentThreshold = averageMetric !== null ? averageMetric * 0.05 : null;
@@ -537,11 +574,11 @@ export function analyzeForWChange(input: WChangeAnalysisInput): WChangeAnalysisO
     const isStrongRedSignal = isConfirmedRedTrend && validationFlag;
 
     // Extract last 5 days of relevant data for context
-    const last5DaysData = dailyData.slice(-5);
-    const last5DayVolumes = last5DaysData.map(d => d.volume ?? null);
-    const last5DayJNSAR = last5DaysData.map(d => d['JNSAR'] ?? null);
-    const last5DayClose = last5DaysData.map(d => d.close ?? null);
-    const last5DayOHLC = last5DaysData.map(d => ({
+    const last5DaysDataInput = sortedDailyData.slice(-5);
+    const last5DayVolumes = last5DaysDataInput.map(d => d.volume ?? null);
+    const last5DayJNSAR = last5DaysDataInput.map(d => d['JNSAR'] ?? null);
+    const last5DayClose = last5DaysDataInput.map(d => d.close ?? null);
+    const last5DayOHLC = last5DaysDataInput.map(d => ({
         date: d.date,
         open: d.open,
         high: d.high,
@@ -575,3 +612,4 @@ export function analyzeForWChange(input: WChangeAnalysisInput): WChangeAnalysisO
     };
 }
 
+    
