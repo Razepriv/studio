@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { format } from 'date-fns';
 import { getStockData, type StockData } from '@/services/stock-data';
@@ -51,6 +52,7 @@ const WChangePage: FC = () => {
   const [processedCount, setProcessedCount] = useState(0);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [filteredAnalysisResults, setFilteredAnalysisResults] = useState<WChangeAnalysisOutput[]>([]); // Store filtered results for display and download
+  const [selectedRange, setSelectedRange] = useState<string>('Current Week');
 
   useEffect(() => {
     const fetchAndAnalyzeData = async () => {
@@ -153,11 +155,13 @@ const WChangePage: FC = () => {
         'Date': analysis.date,
         'Average Metric': analysis.averageMetric,
         '5% Threshold': analysis.fivePercentThreshold,
-        'Latest JNSAR': analysis.latestJNSAR,
-        'Previous JNSAR': analysis.previousJNSAR,
-        'Latest Close': analysis.latestClose,
-        'Previous Close': analysis.previousClose,
-        'Current Trend (R/D)': analysis.r5Trend, // Assuming r5Trend is the current trend source
+        'JNSAR (T-1)': analysis.jnsarTminus1,
+        'Close (T-1)': analysis.closeTminus1,
+        'JNSAR (T)': analysis.jnsarT,
+        'Close (T)': analysis.closeT,
+        'Last 5 Day Volumes': analysis.last5DayVolumes.join(', '),
+        'Last 5 Day JNSAR': analysis.last5DayJNSAR.join(', '),
+        'Last 5 Day Close': analysis.last5DayClose.join(', '),
         'Validation Flag': analysis.l5Validation, // Assuming l5Validation is the validation flag source
         'Green JNSAR Trigger': analysis.isGreenJNSARTrigger ? 'TRUE' : 'FALSE',
         'Red JNSAR Trigger': analysis.isRedJNSARTrigger ? 'TRUE' : 'FALSE',
@@ -203,7 +207,21 @@ const WChangePage: FC = () => {
           </div>
           {/* Date Picker and Download */}
           <div className="flex items-center space-x-4">
-             <Popover>
+ {/* Time Range Dropdown Placeholder */}
+             <Select value={selectedRange} onValueChange={setSelectedRange}>
+                <SelectTrigger className="w-[180px]">
+                   {selectedRange}
+                </SelectTrigger>
+                <SelectContent>
+                   <SelectItem value="Current Week">Current Week</SelectItem>
+                   <SelectItem value="Previous Week">Previous Week</SelectItem>
+                   <SelectItem value="Last Month">Last Month</SelectItem>
+                   <SelectItem value="Last 3 Months">Last 3 Months</SelectItem>
+                   <SelectItem value="Last 6 Months">Last 6 Months</SelectItem>
+                   <SelectItem value="Last 9 Months">Last 9 Months</SelectItem>
+                </SelectContent>
+             </Select>
+              <Popover>
                 <PopoverTrigger asChild>
                 <Button variant={"outline"} className={`w-[180px] justify-start text-left font-normal ${!selectedDate && "text-muted-foreground"}`}>
                     <CalendarIcon className="mr-2 h-4 w-4" />

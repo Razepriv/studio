@@ -51,6 +51,7 @@ export interface WChangeAnalysisOutput {
     jnsarTminus1: number | null;
     closeT: number | null;
     closeTminus1: number | null;
+    closeTminus2: number | null;
     
     // Raw data for the last 5 days for context if needed by UI later
     last5DayVolumes: (number | null)[];
@@ -72,6 +73,13 @@ export interface WChangeAnalysisOutput {
     isStrongGreenSignal: boolean;
     isConfirmedRedTrend: boolean;
     isStrongRedSignal: boolean;
+
+    // New fields for W.Report
+    trend: 'R' | 'D' | null; // R5 Trend
+    jnsarVsClose: 'Bullish' | 'Bearish' | null;
+    validation: boolean; // L5 Validation
+    signalType: 'Flip' | 'Continuation' | 'New Entry' | null;
+    trendSignalSummary: 'Long Confirmed' | 'Long Not Confirmed' | 'Short Confirmed' | 'Short Not Confirmed' | 'Green Flip' | 'Red Flip' | null;
 }
 // --- End of W.Change specific types ---
 
@@ -132,9 +140,9 @@ function calculateSmaSeries(data: (number | null | undefined)[], period: number)
 function calculateEmaSeries(data: (number | null | undefined)[], period: number): (number | null)[] {
     const emaArrayFull: (number | null)[] = Array(data.length).fill(null);
 
-    const validDataIndices: number[] = [];
-    const validDataValues: number[] = [];
-    data.forEach((d, i) => {
+    const validDataIndices: number[] = []
+    const validDataValues: number[] = []
+ data.forEach((d, i) => {
         if (typeof d === 'number') {
             validDataIndices.push(i);
             validDataValues.push(d);
@@ -161,7 +169,7 @@ function calculateEmaSeries(data: (number | null | undefined)[], period: number)
         const currentData = validDataValues[i];
         if (prevEma !== null) { // Current data is guaranteed to be a number here
             emaArrayCalc[i] = (currentData * k) + (prevEma * (1 - k));
-        }
+ }
         // If prevEma is null (should only happen if period > validData length initially), keep null
     }
 
@@ -184,7 +192,7 @@ function calculateEmaSeries(data: (number | null | undefined)[], period: number)
 function calculateAtrSeries(data: StockData[], period: number = 14): (number | null)[] {
      const atrArrayFull: (number | null)[] = Array(data.length).fill(null);
 
-     if (!data || data.length < 2) { // Need at least one previous day for TR calculation
+    if (!data || data.length < 2) { // Need at least one previous day for TR calculation
         return atrArrayFull;
     }
 
@@ -295,25 +303,26 @@ function calculateJnsarSeries(data: StockData[], atrSeries: (number | null)[], a
         return sarArray;
     }
 
-     let startIndex = data.findIndex(d => typeof d?.low === 'number' && typeof d?.high === 'number');
+     let startIndex = data.findIndex(d => typeof d?.low === 'number' && typeof d?.high === 'number' && typeof d?.close === 'number');
      if (startIndex === -1 || startIndex >= data.length -1) return sarArray; 
 
 
     const trend: (1 | -1 | null)[] = Array(data.length).fill(null);
     const ep: (number | null)[] = Array(data.length).fill(null); // Extreme Point
     const af: (number | null)[] = Array(data.length).fill(null); // Acceleration Factor
+    const sar: (number | null)[] = Array(data.length).fill(null);
 
     if (startIndex + 1 < data.length &&
         typeof data[startIndex+1]?.close === 'number' &&
         typeof data[startIndex]?.close === 'number') {
         if (data[startIndex+1].close > data[startIndex].close) {
             trend[startIndex] = 1; 
-            sarArray[startIndex] = data[startIndex].low; 
+            sar[startIndex] = data[startIndex].low; 
             ep[startIndex] = data[startIndex].high;
         } else {
             trend[startIndex] = -1; 
-            sarArray[startIndex] = data[startIndex].high; 
             ep[startIndex] = data[startIndex].low;
+            sar[startIndex] = data[startIndex].high; 
         }
         af[startIndex] = 0.02; 
     } else {
@@ -323,7 +332,7 @@ function calculateJnsarSeries(data: StockData[], atrSeries: (number | null)[], a
 
 
     for (let i = startIndex + 1; i < data.length; i++) {
-        const prevSar = sarArray[i - 1];
+        const prevSar = sar[i - 1];
         const prevTrend = trend[i - 1];
         const prevEp = ep[i - 1];
         const prevAf = af[i - 1];
@@ -340,7 +349,7 @@ function calculateJnsarSeries(data: StockData[], atrSeries: (number | null)[], a
              typeof currentHigh !== 'number' || typeof currentLow !== 'number' ||
              typeof prevLow !== 'number' || typeof prevHigh !== 'number') {
              // If essential previous data is missing, carry forward previous values if possible, or null out.
-             // This state implies a data gap or insufficient history for SAR calculation at this point.
+             // This state implies a data gap or insufficient history for SAR calculation at this point. Will be null.
              sarArray[i] = prevSar; // Attempt to carry forward SAR, might be null
              trend[i] = prevTrend; 
              ep[i] = prevEp;
@@ -348,8 +357,9 @@ function calculateJnsarSeries(data: StockData[], atrSeries: (number | null)[], a
              continue;
          }
 
-        let currentSar: number;
 
+        let currentSar: number;
+        let currentAf = prevAf; // Start with previous AF
         if (prevTrend === 1) { // Uptrend
             currentSar = prevSar + prevAf * (prevEp - prevSar);
              // SAR cannot be higher than the low of the previous two periods
@@ -362,9 +372,13 @@ function calculateJnsarSeries(data: StockData[], atrSeries: (number | null)[], a
                 trend[i] = -1;
                 currentSar = prevEp; // New SAR is the EP of the previous uptrend
                 ep[i] = currentLow; // New EP is the current low
-                af[i] = 0.02; // Reset AF
+                currentAf = 0.02; // Reset AF
             } else { // Continue Uptrend
                 trend[i] = 1;
+                 // Only update EP if the new high is greater than the previous EP
+                let newEp = prevEp;
+                if (currentHigh > prevEp) newEp = currentHigh;
+
                 ep[i] = Math.max(prevEp, currentHigh); // Update EP if new high
                 af[i] = (ep[i] > prevEp) ? Math.min(0.2, prevAf + 0.02) : prevAf; // Increment AF if EP changed
             }
@@ -379,18 +393,21 @@ function calculateJnsarSeries(data: StockData[], atrSeries: (number | null)[], a
                 trend[i] = 1;
                 currentSar = prevEp; // New SAR is the EP of the previous downtrend
                 ep[i] = currentHigh; // New EP is the current high
-                af[i] = 0.02; // Reset AF
+                currentAf = 0.02; // Reset AF
             } else { // Continue Downtrend
                 trend[i] = -1;
+                 // Only update EP if the new low is less than the previous EP
+                let newEp = prevEp;
+                if (currentLow < prevEp) newEp = currentLow;
                 ep[i] = Math.min(prevEp, currentLow); // Update EP if new low
                 af[i] = (ep[i] < prevEp) ? Math.min(0.2, prevAf + 0.02) : prevAf; // Increment AF if EP changed
             }
         }
-         sarArray[i] = currentSar;
+        sar[i] = currentSar;
+        af[i] = currentAf;
     }
-    return sarArray;
+    return sar;
 }
-
 /**
  * Calculates Long and Short Target/Exit points.
  */
@@ -530,9 +547,11 @@ export function analyzeForWChange(input: WChangeAnalysisInput): WChangeAnalysisO
         return null;
     }
 
-    // T is the last element, T-1 is the second to last
+    // T is the last element, T-1 is the second to last, T-2 is the third to last
     const tData = sortedDailyData[sortedDailyData.length - 1];
     const tMinus1Data = sortedDailyData[sortedDailyData.length - 2];
+    // Ensure data for T-2 is available by checking if there are at least 3 data points
+    const tMinus2Data = sortedDailyData.length >= 3 ? sortedDailyData[sortedDailyData.length - 3] : null;
 
     if (!tData || !tMinus1Data) {
         console.warn(`Missing T or T-1 data for ${stockName} in analyzeForWChange.`);
@@ -550,6 +569,7 @@ export function analyzeForWChange(input: WChangeAnalysisInput): WChangeAnalysisO
     const jnsarTminus1 = tMinus1Data['JNSAR'] ?? null;
     const closeT = tData.close ?? null;
     const closeTminus1 = tMinus1Data.close ?? null;
+    const closeTminus2 = tMinus2Data ? tMinus2Data.close ?? null : null;
 
     let isGreenJNSARTrigger = false;
     if (jnsarTminus1 !== null && closeTminus1 !== null && jnsarT !== null && closeT !== null) {
@@ -564,14 +584,59 @@ export function analyzeForWChange(input: WChangeAnalysisInput): WChangeAnalysisO
             isRedJNSARTrigger = true;
         }
     }
-    
-    const currentTrend = r5Trend ?? null; // Default to null if not provided
+
+    // Use the provided r5Trend and l5Validation inputs
+    const currentTrend = r5Trend !== undefined ? r5Trend : null; // Check for undefined
     const validationFlag = l5Validation ?? false; // Default to false if not provided
 
     const isConfirmedGreenTrend = isGreenJNSARTrigger && currentTrend === 'R';
-    const isStrongGreenSignal = isConfirmedGreenTrend && validationFlag;
+    const isStrongGreenSignal = isConfirmedGreenTrend && validationFlag; // This flag is not used in WReport output, but kept for consistency with WChange
     const isConfirmedRedTrend = isRedJNSARTrigger && currentTrend === 'D';
-    const isStrongRedSignal = isConfirmedRedTrend && validationFlag;
+    const isStrongRedSignal = isConfirmedRedTrend && validationFlag; // This flag is not used in WReport output, but kept for consistency with WChange
+
+    // Calculate new fields
+    const trend = currentTrend; // Directly use the passed-in r5Trend
+
+    const jnsarVsClose = (jnsarT !== null && closeT !== null) ? (jnsarT < closeT ? 'Bullish' : 'Bearish') : null;
+    const validation = validationFlag; // Using the passed-in validation flag
+
+    let signalType: 'Flip' | 'Continuation' | 'New Entry' | null = null;
+    if (isGreenJNSARTrigger || isRedJNSARTrigger) {
+        // Determine the JNSAR vs Close relationship for T-1
+        const prevJnsarVsClose = (jnsarTminus1 !== null && closeTminus1 !== null) ? (jnsarTminus1 < closeTminus1 ? 'Bullish' : 'Bearish') : null;
+
+        // Check for Flip signal
+        if (prevJnsarVsClose !== null && jnsarVsClose !== null && prevJnsarVsClose !== jnsarVsClose) {
+            if (isGreenJNSARTrigger && prevJnsarVsClose === 'Bearish' && jnsarVsClose === 'Bullish') signalType = 'Flip'; // Green Flip
+            if (isRedJNSARTrigger && prevJnsarVsClose === 'Bullish' && jnsarVsClose === 'Bearish') signalType = 'Flip'; // Red Flip
+         }
+         // Check for Continuation signal (if not a Flip)
+         if (signalType === null && prevJnsarVsClose !== null && jnsarVsClose !== null && prevJnsarVsClose === jnsarVsClose) {
+             if (isGreenJNSARTrigger && jnsarVsClose === 'Bullish') signalType = 'Continuation'; // Green Continuation
+             if (isRedJNSARTrigger && jnsarVsClose === 'Bearish') signalType = 'Continuation'; // Red Continuation
+         }
+         // New Entry logic requires more historical data; leave as null for now.
+    }
+
+    let trendSignalSummary: 'Long Confirmed' | 'Long Not Confirmed' | 'Short Confirmed' | 'Short Not Confirmed' | 'Green Flip' | 'Red Flip' | null = null;
+
+ if (isGreenJNSARTrigger && (jnsarTminus1 !== null && closeTminus1 !== null && jnsarTminus1 > closeTminus1)) { // Green Flip
+ trendSignalSummary = 'Green Flip';
+    } else if (isRedJNSARTrigger && (jnsarTminus1 !== null && closeTminus1 !== null && jnsarTminus1 < closeTminus1)) { // Red Flip
+ trendSignalSummary = 'Red Flip';
+    } else if (isConfirmedGreenTrend) {
+        trendSignalSummary = 'Long Confirmed';
+    } else if (isConfirmedRedTrend) {
+        trendSignalSummary = 'Short Confirmed';
+    } else if (isGreenJNSARTrigger && (jnsarTminus1 !== null && closeTminus1 !== null && jnsarTminus1 > closeTminus1)) { // Green Flip condition check
+         trendSignalSummary = 'Green Flip';
+    } else if (isRedJNSARTrigger && (jnsarTminus1 !== null && closeTminus1 !== null && jnsarTminus1 < closeTminus1)) { // Red Flip condition check
+        trendSignalSummary = 'Red Flip';
+    } else if (isGreenJNSARTrigger) { // Green Trigger without confirmed trend or being a Flip
+        trendSignalSummary = 'Long Not Confirmed';
+    } else if (isRedJNSARTrigger) { // Red Trigger without confirmed trend or being a Flip
+         trendSignalSummary = 'Short Not Confirmed';
+    }
 
     // Extract last 5 days of relevant data for context
     const last5DaysDataInput = sortedDailyData.slice(-5);
@@ -597,6 +662,7 @@ export function analyzeForWChange(input: WChangeAnalysisInput): WChangeAnalysisO
         jnsarTminus1,
         closeT,
         closeTminus1,
+        closeTminus2,
         last5DayVolumes,
         last5DayJNSAR,
         last5DayClose,
@@ -609,6 +675,12 @@ export function analyzeForWChange(input: WChangeAnalysisInput): WChangeAnalysisO
         isStrongGreenSignal,
         isConfirmedRedTrend,
         isStrongRedSignal,
+
+        trend,
+        jnsarVsClose,
+        validation,
+        signalType,
+        trendSignalSummary,
     };
 }
 

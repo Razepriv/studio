@@ -7,6 +7,7 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const ticker = searchParams.get('ticker');
   const daysParam = searchParams.get('days');
+  const endDateParam = searchParams.get('endDate');
 
   if (!ticker) {
     return NextResponse.json({ message: 'Ticker symbol is required' }, { status: 400 });
@@ -17,8 +18,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ message: 'Invalid number of days' }, { status: 400 });
   }
 
-  const period1 = subDays(new Date(), days);
-  const period2 = new Date(); // Today
+  let period2: Date;
+  if (endDateParam) {
+    period2 = new Date(endDateParam);
+  } else {
+    period2 = new Date(); // Default to today if no endDate is provided
+  }
 
   // Append .NS for NSE stocks if not already present and looks like an Indian ticker
   // Basic heuristic, might need refinement based on actual ticker patterns
@@ -30,6 +35,7 @@ export async function GET(request: NextRequest) {
        console.log(`Using ticker as is: ${ticker}`);
    }
 
+  const period1 = subDays(period2, days);
 
   try {
     const queryOptions = {
@@ -41,14 +47,24 @@ export async function GET(request: NextRequest) {
     console.log(`Fetching data for ${finalTicker} with options:`, queryOptions);
     const results = await yahooFinance.historical(finalTicker, queryOptions);
 
+    // Fetch quote summary to get sector information
+    let quoteSummary;
+    let sector: string | null = null;
+    try {
+      quoteSummary = await yahooFinance.quoteSummary(finalTicker, {
+        modules: ['summaryProfile'], // Request the summaryProfile module
+      });
+      sector = quoteSummary?.summaryProfile?.sector || null;
+    } catch (qsError: any) {
+      console.warn(`Could not fetch quote summary for ${finalTicker}: ${qsError.message}`);
+      // Continue without sector data if fetching quote summary fails
+    }
+
     // Map results to StockData interface
     const formattedData: StockData[] = results.map(result => ({
       date: format(new Date(result.date), 'yyyy-MM-dd'), // Ensure date is in 'yyyy-MM-dd' string format
-      open: result.open,
-      high: result.high,
-      low: result.low,
-      close: result.close,
-      volume: result.volume,
+      ...result, // Include all properties from the historical result
+      sector: sector, // Add the fetched sector
       // adjClose: result.adjClose // Include if needed
     })).filter(d => d.open && d.high && d.low && d.close && d.volume); // Filter out entries with null essential data
 

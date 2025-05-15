@@ -28,6 +28,10 @@ export interface StockData {
    * The trading volume of the stock.
    */
   volume: number;
+  /**
+ * The sector the stock belongs to (optional).
+ */
+  sector?: string | null;
   // Add adj_close if required by calculations and available from the API
   // adj_close?: number;
 }
