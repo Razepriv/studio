@@ -205,10 +205,10 @@ const StockDataTable: FC = () => {
                 columns.forEach(col => {
                     // Use raw values for Excel where possible
                     let value = row[col.key];
-                     if (typeof value === 'number' && (key !== 'volume' && key !== 'AvgVolume')) {
+                     if (typeof value === 'number' && (col.key !== 'volume' && col.key !== 'AvgVolume')) { // Corrected key access
                         // For numbers, keep them as numbers (no toFixed for Excel)
                         newRow[col.label] = value;
-                    } else if (key === 'date') { // Ensure date is string yyyy-MM-dd
+                    } else if (col.key === 'date') { // Corrected key access
                         newRow[col.label] = typeof value === 'string' ? value : (value instanceof Date ? formatDateFns(value, 'yyyy-MM-dd') : String(value));
                     }
                     else {
@@ -241,6 +241,7 @@ const StockDataTable: FC = () => {
     // Let's use a slightly more generous estimate, 200-220 for static elements above scroll
     // Previous ScrollArea height: calc(100vh - 264px)
     // With download controls, new height might be ~ calc(100vh - (264px + 56px)) = calc(100vh - 320px)
+    // Adjusted to ensure visibility, this might need tweaking based on exact component rendering heights.
     const scrollAreaHeight = "h-[calc(100vh-330px)]";
 
 
