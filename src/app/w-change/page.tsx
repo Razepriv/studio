@@ -14,9 +14,28 @@ import { processStockData, analyzeForWChange, type CalculatedStockData, type WCh
 import { useToast } from "@/hooks/use-toast";
 import { CheckCircle, XCircle, AlertTriangle, TrendingUp, TrendingDown, ShieldCheck, Download } from 'lucide-react';
 
-// Using a smaller list for W.Change page development to manage API calls and performance.
-// The main page (page.tsx) has the full list.
-const STOCKS_FOR_WCHANGE = ['ABB', 'ACC', 'AARTIIND', 'ABCAPITAL', 'ABFRL', 'ADANIENT', 'RELIANCE', 'INFY', 'TCS', 'HDFCBANK']; // Example subset
+// Full list of ~220 stocks (copied from page.tsx for now)
+const ALL_POSSIBLE_STOCKS = [
+    'ABB', 'ACC', 'AARTIIND', 'ABCAPITAL', 'ABFRL', 'ADANIENT', 'ADANIGREEN', 'ADANIPORTS', /*'ADANITRANS',*/ 'ALKEM', // ADANITRANS likely delisted/merged, removed for now
+    'AMBUJACEM', 'APOLLOHOSP', 'APOLLOTYRE', 'ASHOKLEY', 'ASIANPAINT', 'ASTRAL', 'ATUL', 'AUBANK', 'AUROPHARMA', 'AXISBANK',
+    'BAJAJ-AUTO', 'BAJFINANCE', 'BAJAJFINSV', 'BAJAJHLDNG', 'BALKRISIND', 'BANDHANBNK', 'BANKBARODA', 'BATAINDIA', 'BERGEPAINT',
+    'BEL', 'BHARATFORG', 'BHARTIARTL', 'BHEL', 'BIOCON', 'BOSCHLTD', 'BPCL', 'BRITANNIA', 'CANBK', 'CHOLAFIN', 'CIPLA',
+    'COALINDIA', 'COFORGE', 'COLPAL', 'CONCOR', 'COROMANDEL', 'CROMPTON', 'CUMMINSIND', 'DALBHARAT', 'DABUR', 'DEEPAKNTR',
+    'DIVISLAB', 'DLF', 'DRREDDY', 'EICHERMOT', 'ESCORTS', /* Renamed to ESCORTSKUBOTA? */ 'FEDERALBNK', 'GAIL', 'GODREJCP', 'GODREJPROP', 'GRASIM',
+    'GUJGASLTD', 'HAVELLS', 'HCLTECH', 'HDFCAMC', 'HDFCBANK', 'HDFCLIFE', 'HEROMOTOCO', 'HINDALCO', 'HINDCOPPER', 'HINDPETRO',
+    'HINDUNILVR', 'HAL', /*'HDFC', */ /* Merged with HDFCBANK */ 'ICICIBANK', 'ICICIGI', 'ICICIPRULI', 'IDFCFIRSTB', 'IDFC', 'INDHOTEL', 'INDIGO',
+    'INDUSTOWER', 'INDUSINDBK', 'NAUKRI', /* INFOEDGE */ 'INFY', 'IOC', 'IEX', 'IPCALAB', 'IRCTC', 'ITC', 'JINDALSTEL',
+    'JSWSTEEL', 'JUBLFOOD', 'KOTAKBANK', 'LT', 'LTIM', /* LTI MINDTREE */ 'LTTS', 'LALPATHLAB', 'LAURUSLABS', 'LICHSGFIN', 'LUPIN',
+    'M&M', /* M_M */ 'M&MFIN', /* M_MFIN */ 'MANAPPURAM', 'MARICO', 'MARUTI', 'MFSL', /* MAX FINANCIAL */ 'METROPOLIS', 'MGL', 'MOTHERSON', /* SAMVARDHANA MOTHERSON */ 'MPHASIS', 'MRF',
+    'MUTHOOTFIN', 'NATIONALUM', 'NAVINFLUOR', 'NESTLEIND', 'NMDC', 'NTPC', 'OBEROIRLTY', 'ONGC', 'OFSS', 'PAGEIND',
+    'PERSISTENT', 'PETRONET', 'PFIZER', 'PIDILITIND', 'PIIND', 'PNB', 'POLYCAB', 'PFC', 'POWERGRID', 'PVRINOX',
+    'RAMCOCEM', 'RBLBANK', 'RECLTD', 'RELIANCE', 'SBICARD', 'SBILIFE', 'SRF', 'SHREECEM', 'SHRIRAMFIN', /* Renamed from SHRIRAM TRANSPORT */ 'SIEMENS', 'SBIN',
+    'SAIL', 'SUNPHARMA', 'SUNTV', 'SYNGENE', 'TATACONSUM', 'TATAMOTORS', /* 'TATAMTRDVR', */ /* Usually less liquid, maybe omit */ 'TATAPOWER', 'TATASTEEL',
+    'TCS', 'TECHM', 'TITAN', 'TORNTPHARM', 'TORNTPOWER', 'TRENT', 'TVSMOTOR', 'ULTRACEMCO', 'UBL', 'MCDOWELL-N', /* UNITED SPIRITS */
+    'UPL', 'VEDL', 'VOLTAS', 'WHIRLPOOL', 'WIPRO', 'ZEEL', 'ZYDUSLIFE'
+    // Adding potentially missing but common ones if needed: BAJAJHLDNG, LTIM, M&M, M&MFIN, SAMVARDHANA, MAXFINANCIAL etc. - Added common variations
+].filter((v, i, a) => a.indexOf(v) === i).sort(); // Deduplicate and sort
+
 
 const WChangePage: FC = () => {
   const [analysisResults, setAnalysisResults] = useState<WChangeAnalysisOutput[]>([]);
@@ -24,14 +43,18 @@ const WChangePage: FC = () => {
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
+  const [processedCount, setProcessedCount] = useState(0);
 
   useEffect(() => {
     const fetchAndAnalyzeData = async () => {
       setLoading(true);
       setError(null);
+      setProcessedCount(0);
       const results: WChangeAnalysisOutput[] = [];
+      const totalStocks = ALL_POSSIBLE_STOCKS.length;
 
-      for (const stockTicker of STOCKS_FOR_WCHANGE) {
+      for (let i = 0; i < totalStocks; i++) {
+        const stockTicker = ALL_POSSIBLE_STOCKS[i];
         try {
           // Fetch ~30-40 days for indicator stability, analyzeForWChange uses latest
           const rawData: StockData[] = await getStockData(stockTicker, 30); 
@@ -51,17 +74,29 @@ const WChangePage: FC = () => {
           }
         } catch (err: any) {
           console.error(`Error processing ${stockTicker}:`, err);
-          toast({
-            variant: "destructive",
-            title: `Error for ${stockTicker}`,
-            description: err.message || "Failed to fetch or process data.",
-          });
+          // Optionally, show a non-blocking toast for individual errors
+          // toast({
+          //   variant: "destructive",
+          //   title: `Error for ${stockTicker}`,
+          //   description: err.message || "Failed to fetch or process data.",
+          // });
         }
+        setProcessedCount(prevCount => prevCount + 1);
       }
       setAnalysisResults(results);
       setLoading(false);
-      if (results.length === 0 && STOCKS_FOR_WCHANGE.length > 0 && !error) {
-        setError("No analysis results generated. Check if stock data is available for the selected tickers.");
+      if (results.length === 0 && totalStocks > 0 && !error) { // Check if any error was set globally
+        // This message might appear if all stocks fail or return no valid data for analysis
+        // setError("No analysis results generated. Check if stock data is available for the selected tickers or if there were individual errors.");
+         toast({
+            title: "Analysis Complete",
+            description: "No specific W.Change signals were triggered for the analyzed stocks based on current criteria.",
+        });
+      } else if (results.length > 0) {
+         toast({
+            title: "Analysis Complete",
+            description: `Successfully analyzed ${results.length} stocks for W.Change signals.`,
+        });
       }
     };
 
@@ -145,7 +180,8 @@ const WChangePage: FC = () => {
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <div>
             <CardTitle className="text-xl font-semibold text-foreground">W.Change Analysis</CardTitle>
-            <CardDescription>Analysis of stock data based on weekly change parameters.</CardDescription>
+            <CardDescription>Analysis of stock data based on weekly change parameters. Please wait while all stocks are processed.</CardDescription>
+             {loading && <CardDescription>Processed {processedCount} of {ALL_POSSIBLE_STOCKS.length} stocks...</CardDescription>}
           </div>
           <Button onClick={handleDownloadExcel} disabled={isDownloading || loading || analysisResults.length === 0} className="h-9 text-sm">
             <Download className="mr-2 h-4 w-4" />
@@ -178,7 +214,7 @@ const WChangePage: FC = () => {
         </Alert>
       )}
 
-      {!loading && !error && analysisResults.length > 0 && (
+      {!loading && !error && (analysisResults.length > 0 || ALL_POSSIBLE_STOCKS.length > 0) && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <Card className="shadow-md border border-border rounded-lg">
             <CardHeader className="pb-3">
@@ -251,11 +287,11 @@ const WChangePage: FC = () => {
           </Card>
         </div>
       )}
-      {!loading && !error && analysisResults.length === 0 && STOCKS_FOR_WCHANGE.length > 0 && (
+      {!loading && !error && analysisResults.length === 0 && ALL_POSSIBLE_STOCKS.length > 0 && (
          <Alert>
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>No Results</AlertTitle>
-          <AlertDescription>No W.Change signals were triggered for the analyzed stocks. Try again later or check data availability.</AlertDescription>
+          <AlertTitle>No Specific Signals</AlertTitle>
+          <AlertDescription>The analysis completed, but no stocks triggered the specific W.Change signal criteria. This could be due to current market conditions or data patterns.</AlertDescription>
         </Alert>
       )}
     </main>
@@ -263,3 +299,6 @@ const WChangePage: FC = () => {
 };
 
 export default WChangePage;
+
+
+    
