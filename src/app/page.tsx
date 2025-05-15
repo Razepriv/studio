@@ -18,8 +18,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { getStockData, type StockData } from '@/services/stock-data';
 import { processStockData, type CalculatedStockData } from '@/lib/calculations';
-import { useToast } from "@/hooks/use-toast"; // Import useToast
-import { Badge } from "@/components/ui/badge"; // Import Badge for boolean display
+import { useToast } from "@/hooks/use-toast";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 
 // Initial list of stocks - Subset of the full list below
@@ -53,27 +54,21 @@ const StockDataTable: FC = () => {
     const [stockData, setStockData] = useState<CalculatedStockData[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
-    const { toast } = useToast(); // Initialize toast
+    const { toast } = useToast();
 
     useEffect(() => {
         const fetchData = async () => {
             setLoading(true);
             setError(null);
             try {
-                // Fetch raw data using the service which now calls the API route
-                const rawData: StockData[] = await getStockData(selectedStock, 120); // Fetch 120 days for better SMA/EMA/ATR calc
+                const rawData: StockData[] = await getStockData(selectedStock, 120);
 
                 if (rawData && rawData.length > 0) {
-                     // Extract dates directly from the fetched data
                     const dates = rawData.map(d => d.date);
-                    // Process data - make sure dates are handled inside processStockData
                     const processed = processStockData(rawData, dates);
-                    // Filter out the first few rows where calculations might be incomplete (e.g., EMA, ATR, Pivots)
-                    // Keep at least 60 rows, or fewer if total is less. Adjust N as needed.
-                    const N = 21; // Need ~20 for 20-day SMA, +1 for prev day pivots
+                    const N = 21;
                     const displayData = processed.length > N ? processed.slice(N) : processed;
-
-                    setStockData(displayData.slice(-60)); // Keep only latest 60 days for display
+                    setStockData(displayData.slice(-60));
                 } else {
                     setStockData([]);
                     const message = `No data returned for ${selectedStock}. Check if the ticker is valid on Yahoo Finance (try adding '.NS' for NSE stocks).`;
@@ -88,8 +83,8 @@ const StockDataTable: FC = () => {
                 console.error("Error fetching or processing stock data:", err);
                 const errorMessage = err.message || `Failed to load data for ${selectedStock}. Check console for details.`;
                 setError(errorMessage);
-                setStockData([]); // Clear data on error
-                 toast({ // Show toast on error
+                setStockData([]);
+                 toast({
                      variant: "destructive",
                      title: "Data Fetch Error",
                      description: errorMessage,
@@ -100,9 +95,8 @@ const StockDataTable: FC = () => {
         };
 
         fetchData();
-    }, [selectedStock, toast]); // Re-run effect when selectedStock or toast changes
+    }, [selectedStock, toast]);
 
-    // Define the columns in the desired order based on the image
     const columns: { key: keyof CalculatedStockData; label: string }[] = useMemo(() => [
         { key: 'date', label: 'Date' },
         { key: 'open', label: 'Open' },
@@ -110,76 +104,56 @@ const StockDataTable: FC = () => {
         { key: 'low', label: 'Low' },
         { key: 'close', label: 'Close' },
         { key: 'volume', label: 'Volume' },
-        // Calculated based on 5-period EMA
-        { key: '5-LEMA', label: '5-LEMA' }, // EMA of Low
-        { key: '5-EMA', label: '5-EMA' }, // EMA of Close
-        { key: '5-HEMA', label: '5-HEMA' }, // EMA of High
-        // Renko columns omitted - require specific Renko brick calculation logic
-        // Placeholder for JNSAR
-        { key: 'JNSAR', label: 'JNSAR' }, // JNSAR calculation needed
-        // HH/HL/CL columns (HL seems to mean Lower Low 'LL')
-        { key: 'HH', label: 'HH' }, // Higher High (Y/0)
-        { key: 'LL', label: 'LL' }, // Lower Low (Y/0) - Renamed from HL
-        { key: 'CL', label: 'CL' }, // Close Lower (Y/0)
-        // Diff column
-        { key: 'Diff', label: 'Diff' }, // High - Low
-        // 14 Day ATR
-        { key: 'ATR', label: 'ATR' }, // 14-day ATR
-        // Pivot Point Levels (calculated from previous day)
+        { key: '5-LEMA', label: '5-LEMA' },
+        { key: '5-EMA', label: '5-EMA' },
+        { key: '5-HEMA', label: '5-HEMA' },
+        { key: 'JNSAR', label: 'JNSAR' },
+        { key: 'HH', label: 'HH' },
+        { key: 'LL', label: 'LL' },
+        { key: 'CL', label: 'CL' },
+        { key: 'Diff', label: 'Diff' },
+        { key: 'ATR', label: 'ATR' },
         { key: 'H4', label: 'H4' },
         { key: 'H3', label: 'H3' },
-        { key: 'H2', label: 'H2' }, // Added H2
+        { key: 'H2', label: 'H2' },
         { key: 'H1', label: 'H1' },
         { key: 'PP', label: 'PP' },
         { key: 'L1', label: 'L1' },
-        { key: 'L2', label: 'L2' }, // Added L2
+        { key: 'L2', label: 'L2' },
         { key: 'L3', label: 'L3' },
         { key: 'L4', label: 'L4' },
-        // Long/Short Breakout/Entry Points (likely based on previous day pivots)
-        { key: 'Long@', label: 'Long@' }, // Example: L1 from prev day
-        { key: 'Short@', label: 'Short@' }, // Example: H1 from prev day
-        // Volume Check
-        { key: 'Volume > 150%', label: 'Vol > 150%' }, // Volume vs Avg Volume check
-        // Target columns (Need calculation logic)
-        { key: 'ShortTarget', label: 'Short Target' }, // Calculated Short Target
-        { key: 'LongTarget', label: 'Long Target' }, // Calculated Long Target
-
+        { key: 'Long@', label: 'Long@' },
+        { key: 'Short@', label: 'Short@' },
+        { key: 'Volume > 150%', label: 'Vol > 150%' },
+        { key: 'ShortTarget', label: 'Short Target' },
+        { key: 'LongTarget', label: 'Long Target' },
     ], []);
 
     const formatValue = (value: any, key: keyof CalculatedStockData): React.ReactNode => {
         if (value === null || value === undefined) return '-';
-
         if (key === 'Volume > 150%') {
              return value ? <Badge variant="default" className="bg-green-600 text-white">True</Badge> : <Badge variant="secondary">False</Badge>;
         }
-
         if (typeof value === 'boolean') {
              return value ? 'True' : 'False';
         }
-
         if (typeof value === 'number') {
-            // Format large numbers (Volume) without decimals
              if (key === 'volume' || key === 'AvgVolume') {
                  return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
              }
-             // Format price/indicator related numbers with 2 decimal places
             return value.toFixed(2);
         }
-
-        // Handle HH, LL, CL 'Y'/'0' display
         if ((key === 'HH' || key === 'LL' || key === 'CL') && (value === 'Y' || value === '0')) {
            return value === 'Y' ? <span className="text-green-600 font-semibold">Y</span> : <span className="text-muted-foreground">0</span>;
         }
-
-        // Handle date formatting if needed (should be 'yyyy-MM-dd' string)
-        // if (key === 'date' && typeof value === 'string') {
-        //     try {
-        //         return format(parseISO(value), 'dd-MMM-yy'); // Example format change
-        //     } catch { return value; } // Fallback if parsing fails
-        // }
-
         return String(value);
     };
+
+    // Estimate AppHeader height (h-16 is 4rem = 64px)
+    // Estimate CardHeader and other elements above ScrollArea: ~200px
+    // New ScrollArea height: calc(100vh - AppHeaderHeight - OtherElementsHeight)
+    // = calc(100vh - 64px - 200px) = calc(100vh - 264px)
+    const scrollAreaHeight = "h-[calc(100vh-264px)]";
 
 
     return (
@@ -194,7 +168,7 @@ const StockDataTable: FC = () => {
                             <SelectValue placeholder="Select Stock" />
                         </SelectTrigger>
                         <SelectContent>
-                            {ALL_POSSIBLE_STOCKS.map(stock => ( // Use the deduplicated and sorted list
+                            {ALL_POSSIBLE_STOCKS.map(stock => (
                                 <SelectItem key={stock} value={stock} className="text-sm">
                                     {stock}
                                 </SelectItem>
@@ -202,13 +176,11 @@ const StockDataTable: FC = () => {
                         </SelectContent>
                     </Select>
                  </div>
-
             </CardHeader>
-            <CardContent className="p-0"> {/* Remove default padding */}
+            <CardContent className="p-0">
                 {error && <p className="text-destructive p-4">{error}</p>}
                 <div className="overflow-x-auto">
-                 {/* Added specific height and scrollbar styling */}
-                 <ScrollArea className="h-[calc(100vh-200px)]"> {/* Adjust height as needed */}
+                 <ScrollArea className={scrollAreaHeight}>
                     <Table className="min-w-full divide-y divide-border">
                         <TableCaption className="py-2 text-xs text-muted-foreground">
                             Calculated stock data for {selectedStock}. Data sourced from Yahoo Finance. Displaying last 60 available days.
@@ -219,8 +191,6 @@ const StockDataTable: FC = () => {
                                     <TableHead
                                         key={col.key}
                                         className="whitespace-nowrap px-2 py-2 text-xs font-medium text-muted-foreground h-10 border-b border-border"
-                                        // Add specific background/text colors based on image sections if needed
-                                        // style={getHeaderStyle(col.key)}
                                         >
                                         {col.label}
                                     </TableHead>
@@ -229,8 +199,7 @@ const StockDataTable: FC = () => {
                         </TableHeader>
                         <TableBody className="divide-y divide-border">
                             {loading ? (
-                                // Skeleton Loader Rows
-                                Array.from({ length: 15 }).map((_, rowIndex) => ( // More skeleton rows
+                                Array.from({ length: 15 }).map((_, rowIndex) => (
                                     <TableRow key={`skel-${rowIndex}`} className="hover:bg-muted/30">
                                         {columns.map((col) => (
                                             <TableCell key={`skel-${rowIndex}-${col.key}`} className="px-2 py-1 h-8">
@@ -240,15 +209,12 @@ const StockDataTable: FC = () => {
                                     </TableRow>
                                 ))
                             ) : stockData.length > 0 ? (
-                                // Display latest data first
                                 [...stockData].reverse().map((row, rowIndex) => (
                                     <TableRow key={row.date || `row-${rowIndex}`} className="hover:bg-muted/30 data-[state=selected]:bg-accent/50">
                                         {columns.map((col) => (
                                             <TableCell
                                                 key={`${row.date}-${col.key}`}
                                                 className="whitespace-nowrap px-2 py-1 text-xs h-8"
-                                                // Add specific background/text colors based on image sections if needed
-                                                // style={getCellStyle(col.key, row[col.key])}
                                                 >
                                                 {formatValue(row[col.key], col.key)}
                                             </TableCell>
@@ -266,39 +232,15 @@ const StockDataTable: FC = () => {
                     </Table>
                   </ScrollArea>
                 </div>
-
             </CardContent>
         </Card>
     );
 };
 
-// --- Helper Functions for Styling (Optional) ---
-
-// Example: Get header background color based on column groups in image
-// const getHeaderStyle = (key: keyof CalculatedStockData): React.CSSProperties => {
-//     if (['open', 'high', 'low', 'close', 'volume'].includes(key)) return { backgroundColor: 'hsl(var(--muted))' };
-//     if (['5-LEMA', '5-EMA', '5-HEMA'].includes(key)) return { backgroundColor: 'hsl(var(--accent)/20)' };
-//     if (['JNSAR', 'HH', 'LL', 'CL', 'Diff'].includes(key)) return { backgroundColor: 'hsl(var(--primary)/10)' };
-//     // Add more conditions for other groups
-//     return {};
-// }
-
-// Example: Get cell background/text color based on value or column
-// const getCellStyle = (key: keyof CalculatedStockData, value: any): React.CSSProperties => {
-//      if (key === 'Volume > 150%' && value === true) return { backgroundColor: 'hsl(120, 70%, 90%)', color: 'hsl(120, 60%, 25%)', fontWeight: '500' };
-//      if ((key === 'HH' || key === 'LL' || key === 'CL') && value === 'Y') return { color: 'hsl(120, 60%, 35%)', fontWeight: '600' };
-//      // Add more styling rules
-//      return {};
-// }
-
-
 export default function Home() {
   return (
-      <main className="container mx-auto py-4"> {/* Reduced padding */}
+      <main className="container mx-auto py-4">
           <StockDataTable />
       </main>
   );
 }
-
-// Add ScrollArea component import if not already present globally
-import { ScrollArea } from "@/components/ui/scroll-area";
