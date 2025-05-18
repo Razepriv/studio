@@ -1,3 +1,4 @@
+
 import { NextResponse, type NextRequest } from 'next/server';
 import yahooFinance from 'yahoo-finance2';
 import { format, subDays } from 'date-fns';
@@ -28,7 +29,8 @@ export async function GET(request: NextRequest) {
   // Append .NS for NSE stocks if not already present and looks like an Indian ticker
   // Basic heuristic, might need refinement based on actual ticker patterns
   let finalTicker = ticker;
-    if (!ticker.includes('.') && /^[A-Z&]+$/.test(ticker) && ticker.length > 2 && ticker !== 'SPY' && ticker !== 'QQQ') { // Avoid adding .NS to US indices/ETFs
+    // Updated regex to include hyphens and ampersands, and be case-insensitive for the test part.
+    if (!ticker.includes('.') && /^[A-Z0-9\-&]+$/i.test(ticker) && ticker.length > 2 && ticker !== 'SPY' && ticker !== 'QQQ') { 
        console.log(`Appending .NS to ticker: ${ticker}`);
        finalTicker = `${ticker}.NS`;
    } else {
@@ -78,8 +80,8 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error(`Yahoo Finance API Error for ${finalTicker}:`, error.message || error);
      let errorMessage = `Failed to fetch data for ${ticker}.`;
-     if (error.message && error.message.includes('404 Not Found')) {
-        errorMessage = `Ticker symbol '${ticker}' not found or invalid on Yahoo Finance. Try adding '.NS' for NSE stocks.`;
+     if (error.message && (error.message.includes('404 Not Found') || error.message.toLowerCase().includes('no data found'))) {
+        errorMessage = `Ticker symbol '${ticker}' (tried as '${finalTicker}') not found or no data available on Yahoo Finance. It might be delisted or the symbol is incorrect.`;
      } else if (error.message) {
         errorMessage += ` Details: ${error.message}`;
      }
