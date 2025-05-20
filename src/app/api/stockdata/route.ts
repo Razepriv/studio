@@ -27,10 +27,9 @@ export async function GET(request: NextRequest) {
   }
 
   // Append .NS for NSE stocks if not already present and looks like an Indian ticker
-  // Basic heuristic, might need refinement based on actual ticker patterns
   let finalTicker = ticker;
     // Updated regex to include hyphens and ampersands, and be case-insensitive for the test part.
-    if (!ticker.includes('.') && /^[A-Z0-9\-&]+$/i.test(ticker) && ticker.length > 2 && ticker !== 'SPY' && ticker !== 'QQQ') { 
+    if (!ticker.includes('.') && /^[A-Z0-9\-&]+$/i.test(ticker) && ticker.length > 2 && ticker !== 'SPY' && ticker !== 'QQQ') {
        console.log(`Appending .NS to ticker: ${ticker}`);
        finalTicker = `${ticker}.NS`;
    } else {
@@ -75,7 +74,13 @@ export async function GET(request: NextRequest) {
         // Return empty array, let frontend handle 'No data' state
     }
 
-    return NextResponse.json(formattedData);
+    // Add cache-control headers to prevent aggressive caching
+    const headers = new Headers();
+    headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    headers.set('Pragma', 'no-cache');
+    headers.set('Expires', '0');
+
+    return NextResponse.json(formattedData, { headers });
 
   } catch (error: any) {
     console.error(`Yahoo Finance API Error for ${finalTicker}:`, error.message || error);
