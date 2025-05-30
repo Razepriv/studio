@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { getStockData, type StockData } from '@/services/stock-data';
 import { processStockData, analyzeForWChange, type CalculatedStockData, type WChangeAnalysisOutput } from '@/lib/calculations';
 import { useToast } from "@/hooks/use-toast";
@@ -50,9 +50,9 @@ const WChangePage: FC = () => {
   const { toast } = useToast();
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [processedCount, setProcessedCount] = useState(0);
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined); // Undefined means use current date (latest data)
   const [filteredAnalysisResults, setFilteredAnalysisResults] = useState<WChangeAnalysisOutput[]>([]);
-  const [selectedRange, setSelectedRange] = useState<string>('Current Week'); // This state is present but not fully driving logic yet
+  const [selectedRange, setSelectedRange] = useState<string>('Current Week'); 
 
   useEffect(() => {
     const fetchAndAnalyzeData = async () => {
@@ -62,13 +62,14 @@ const WChangePage: FC = () => {
       const results: WChangeAnalysisOutput[] = [];
       const totalStocks = ALL_POSSIBLE_STOCKS.length;
 
+      // If selectedDate is undefined, API fetches up to today. Otherwise, up to selectedDate.
       const endDate = selectedDate ? format(selectedDate, 'yyyy-MM-dd') : undefined;
 
       for (let i = 0; i < totalStocks; i++) {
         const stockTicker = ALL_POSSIBLE_STOCKS[i];
         try {
-          // Fetch 30 weeks of data for indicator stability, ending at selectedDate (or today)
-          // analyzeForWChange uses latest week from this data
+          // Fetch 30 weeks of weekly data for indicator stability.
+          // analyzeForWChange uses latest week from this data based on endDate.
           const rawData: StockData[] = await getStockData(stockTicker, 30, endDate, '1wk');
           
           if (rawData && rawData.length > 0) {
@@ -76,10 +77,11 @@ const WChangePage: FC = () => {
             // processStockData calculates weekly indicators
             const weeklyCalculatedData: CalculatedStockData[] = processStockData(rawData, dates);
             
+            // analyzeForWChange now correctly handles weekly data, interpreting T as current week, T-1 as previous.
             const analysis = analyzeForWChange({
               stockName: stockTicker,
               dailyData: weeklyCalculatedData, // Passing weekly data here
-              // r5Trend and l5Validation are not sourced yet, defaults will apply
+              // r5Trend and l5Validation are not sourced yet, defaults will apply in analyzeForWChange
             });
 
             if (analysis) {
@@ -89,29 +91,38 @@ const WChangePage: FC = () => {
         } catch (err: any) {
           console.error(`Error processing ${stockTicker}:`, err);
           // Optionally, show a non-blocking toast for individual errors
+          // toast({ variant: "destructive", title: `Error for ${stockTicker}`, description: err.message });
         }
         setProcessedCount(prevCount => prevCount + 1);
       }
       
-      if (results.length === 0 && totalStocks > 0 && !error) {
+      if (results.length === 0 && totalStocks > 0 && !error) { // Added !error to prevent overriding an actual fetch error message
          toast({
             title: "Analysis Complete",
-            description: "No specific Weekly Change signals were triggered for the analyzed stocks based on current criteria.",
+            description: "No specific Weekly Change signals were triggered for the analyzed stocks based on current criteria for the selected period.",
         });
       } else if (results.length > 0) {
          toast({
             title: "Analysis Complete",
             description: `Successfully analyzed ${results.length} stocks for Weekly Change signals.`,
         });
+      } else if (error) { // If there was an error during fetch/processing
+        toast({
+            variant: "destructive",
+            title: "Analysis Incomplete",
+            description: `Could not complete analysis due to errors. ${error}`,
+        });
       }
+
 
       setAnalysisResults(results);
       setLoading(false);
     };
     fetchAndAnalyzeData();
-  }, [selectedDate, toast]);
+  }, [selectedDate, toast]); // Re-run when selectedDate changes
 
-  // Display all analysis results; selectedDate influences the "as of" date for latest week.
+  // This useEffect now simply sets filtered results to all analysis results.
+  // Filtering logic could be added here later if needed (e.g., by signal type).
   useEffect(() => {
     setFilteredAnalysisResults(analysisResults);
   }, [analysisResults]);
@@ -138,22 +149,22 @@ const WChangePage: FC = () => {
       return;
     }
     setIsDownloading(true);
-    toast({ title: "Download Started", description: `Preparing W.Change analysis data for Excel.` });
+    toast({ title: "Download Started", description: `Preparing W.Change weekly analysis data for Excel.` });
 
     try {
       const workbook = XLSX.utils.book_new();
       const dataForSheet = filteredAnalysisResults.map(analysis => ({
         'Ticker': analysis.tickerName,
-        'Date of Latest Week': analysis.latestDate, // This date is the start of the week typically
+        'Date of Latest Week': analysis.latestDate ? format(parseISO(analysis.latestDate), 'dd MMM yyyy') : 'N/A',
         'Avg Metric (ATR W)': analysis.averageMetric,
         '5% Threshold': analysis.fivePercentThreshold,
-        'JNSAR (W-1)': analysis.jnsarTminus1, // Represents previous week's JNSAR
-        'Close (W-1)': analysis.closeTminus1,   // Represents previous week's Close
-        'JNSAR (W)': analysis.jnsarT,       // Represents current week's JNSAR
-        'Close (W)': analysis.closeT,       // Represents current week's Close
-        'Last 5 Weeks Volumes': analysis.last5DayVolumes.join(', '), // Now represents weekly volumes
-        'Last 5 Weeks JNSAR': analysis.last5DayJNSAR.join(', '),   // Weekly JNSAR
-        'Last 5 Weeks Close': analysis.last5DayClose.join(', '),   // Weekly Close
+        'JNSAR (W-1)': analysis.jnsarTminus1, 
+        'Close (W-1)': analysis.closeTminus1,  
+        'JNSAR (W)': analysis.jnsarT,      
+        'Close (W)': analysis.closeT,      
+        'Last 5 Weeks Volumes': analysis.last5PeriodsVolumes.join(', '), 
+        'Last 5 Weeks JNSAR': analysis.last5PeriodsJNSAR.join(', '),  
+        'Last 5 Weeks Close': analysis.last5PeriodsClose.join(', '),  
         'Validation Flag (L5)': analysis.validationFlag,
         'Green JNSAR Trigger': analysis.isGreenJNSARTrigger ? 'TRUE' : 'FALSE',
         'Red JNSAR Trigger': analysis.isRedJNSARTrigger ? 'TRUE' : 'FALSE',
@@ -171,8 +182,11 @@ const WChangePage: FC = () => {
       }
       
       const worksheet = XLSX.utils.json_to_sheet(dataForSheet);
-      XLSX.utils.book_append_sheet(workbook, worksheet, "WChange_Analysis");
-      XLSX.writeFile(workbook, `WChange_Weekly_Analysis_Report.xlsx`);
+      XLSX.utils.book_append_sheet(workbook, worksheet, "WChange_Weekly_Analysis");
+      const excelFileName = selectedDate 
+        ? `WChange_Weekly_Analysis_Report_as_of_${format(selectedDate, 'yyyyMMdd')}.xlsx` 
+        : `WChange_Weekly_Analysis_Report_Latest.xlsx`;
+      XLSX.writeFile(workbook, excelFileName);
       toast({ title: "Download Complete", description: `W.Change weekly analysis report downloaded.` });
 
     }
@@ -190,22 +204,24 @@ const WChangePage: FC = () => {
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <div>
             <CardTitle className="text-xl font-semibold text-foreground">W.Change Analysis (Weekly)</CardTitle>
-            <CardDescription>Analysis of stock data based on weekly change parameters, as of the week ending on or before selected date.</CardDescription>
+            <CardDescription>Analysis of stock data based on weekly change parameters. Data shown is for the week ending on or before the selected 'as of' date.
+             {selectedDate ? ` (As of: ${format(selectedDate, "PPP")})` : " (Using latest available data)"}
+            </CardDescription>
              {loading && <CardDescription>Processed {processedCount} of {ALL_POSSIBLE_STOCKS.length} stocks...</CardDescription>}
           </div>
           <div className="flex items-center space-x-4">
-             <Select value={selectedRange} onValueChange={setSelectedRange}>
+             <Select value={selectedRange} onValueChange={setSelectedRange} disabled>
                 <SelectTrigger className="w-[180px]">
                    <SelectValue placeholder="Select Range" />
                 </SelectTrigger>
                 <SelectContent>
                    <SelectItem value="Current Week">Latest Week</SelectItem>
-                   {/* Add other range options later if needed */}
+                   {/* Future: Add other range options if needed, like "Previous Week" */}
                 </SelectContent>
              </Select>
               <Popover>
                 <PopoverTrigger asChild>
-                <Button variant={"outline"} className={`w-[180px] justify-start text-left font-normal ${!selectedDate && "text-muted-foreground"}`}>
+                <Button variant={"outline"} className={`w-[200px] justify-start text-left font-normal ${!selectedDate && "text-muted-foreground"}`}>
                     <CalendarIcon className="mr-2 h-4 w-4" />
                     {selectedDate ? format(selectedDate, "PPP") : "Pick 'as of' date"}
                 </Button>
@@ -227,7 +243,7 @@ const WChangePage: FC = () => {
             <div className="space-y-2 text-sm pt-2 text-card-foreground">
               <p><strong>Average Metric:</strong> Calculated as the latest Average True Range (ATR) value for week W.</p>
               <p><strong>5% Threshold:</strong> Calculated as <code>Average Metric * 0.05</code> (Note: This threshold is calculated but not directly used in current public triggers).</p>
-              <p><strong>Data Points Used:</strong> The analysis primarily uses JNSAR and Closing prices for the current week (W) and the previous week (W-1).</p>
+              <p><strong>Data Points Used:</strong> The analysis primarily uses JNSAR and Closing prices for the current week (W) and the previous week (W-1) from the weekly data series.</p>
               <p><strong>Green JNSAR Trigger:</strong> A stock triggers this if: <code>JNSAR[W-1] &gt; Close[W-1]</code> AND <code>JNSAR[W] &lt; Close[W]</code>. The ticker name is shown if triggered.</p>
               <p><strong>Red JNSAR Trigger:</strong> A stock triggers this if: <code>JNSAR[W-1] &lt; Close[W-1]</code> AND <code>JNSAR[W] &gt; Close[W]</code>. The ticker name is shown if triggered.</p>
               <p><strong>Current Trend (R/D):</strong> Based on an external data point or rule (e.g., 'R5' from a sheet). Currently, this defaults to a neutral state if not provided, meaning 'Confirmed Trend' signals might not activate unless this input is integrated.</p>
@@ -338,7 +354,7 @@ const WChangePage: FC = () => {
           </Card>
         </div>
       )}
-      {!loading && !error && filteredAnalysisResults.length === 0 && ALL_POSSIBLE_STOCKS.length > 0 && (
+      {!loading && !error && filteredAnalysisResults.length === 0 && processedCount === ALL_POSSIBLE_STOCKS.length && (
          <Alert>
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>No Specific Weekly Signals</AlertTitle>

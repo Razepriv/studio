@@ -34,14 +34,17 @@ export interface CalculatedStockData extends StockData {
 // --- Start of W.Change specific types ---
 export interface WChangeAnalysisInput {
     stockName: string;
-    dailyData: CalculatedStockData[]; // Chronological, latest last (should be T). Expects at least 2 recent records for T and T-1.
+    dailyData: CalculatedStockData[]; // Chronological, latest last. For W.Change page, this is weekly data. For W.Report triggers, it's daily.
     r5Trend?: 'R' | 'D' | null;       // Optional: User-defined rising/declining trend
     l5Validation?: boolean;           // Optional: User-defined validation flag
 }
 
+export type WChangeSignalSummary = 'Long Confirmed' | 'Long Not Confirmed' | 'Short Confirmed' | 'Short Not Confirmed' | 'Green Flip' | 'Red Flip' | null;
+
+
 export interface WChangeAnalysisOutput {
     tickerName: string;
-    latestDate: string | null;         // Date of T
+    latestDate: string | null;         // Date of T (current period)
 
     averageMetric: number | null;      // Using ATR[T]
     fivePercentThreshold: number | null;
@@ -53,11 +56,11 @@ export interface WChangeAnalysisOutput {
     closeTminus1: number | null;
     closeTminus2: number | null;
     
-    // Raw data for the last 5 days for context if needed by UI later
-    last5DayVolumes: (number | null)[];
-    last5DayJNSAR: (number | null)[];
-    last5DayClose: (number | null)[];
-    last5DayOHLC: StockData[];
+    // Raw data for the last 5 periods for context
+    last5PeriodsVolumes: (number | null)[];
+    last5PeriodsJNSAR: (number | null)[];
+    last5PeriodsClose: (number | null)[];
+    last5PeriodsOHLC: StockData[];
 
 
     // Trigger flags
@@ -74,12 +77,12 @@ export interface WChangeAnalysisOutput {
     isConfirmedRedTrend: boolean;
     isStrongRedSignal: boolean;
 
-    // New fields for W.Report
+    // New fields for W.Report page context (if WChangeAnalysis is used there)
     trend: 'R' | 'D' | null; // R5 Trend
     jnsarVsClose: 'Bullish' | 'Bearish' | null;
     validation: boolean; // L5 Validation
     signalType: 'Flip' | 'Continuation' | 'New Entry' | null;
-    trendSignalSummary: 'Long Confirmed' | 'Long Not Confirmed' | 'Short Confirmed' | 'Short Not Confirmed' | 'Green Flip' | 'Red Flip' | null;
+    trendSignalSummary: WChangeSignalSummary;
 }
 // --- End of W.Change specific types ---
 
@@ -350,7 +353,7 @@ function calculateJnsarSeries(data: StockData[], atrSeries: (number | null)[], a
              typeof prevLow !== 'number' || typeof prevHigh !== 'number') {
              // If essential previous data is missing, carry forward previous values if possible, or null out.
              // This state implies a data gap or insufficient history for SAR calculation at this point. Will be null.
-             sarArray[i] = prevSar; // Attempt to carry forward SAR, might be null
+             sar[i] = prevSar; // Attempt to carry forward SAR, might be null
              trend[i] = prevTrend; 
              ep[i] = prevEp;
              af[i] = prevAf;
@@ -529,12 +532,13 @@ export function processStockData(rawData: StockData[], dates?: string[]): Calcul
 /**
  * Analyzes daily stock data for W.Change specific signals.
  * Expects `dailyData` to be sorted chronologically with the latest data point (T) at the end.
+ * `dailyData` can be daily or weekly data points depending on the caller's context.
  */
 export function analyzeForWChange(input: WChangeAnalysisInput): WChangeAnalysisOutput | null {
     const { stockName, dailyData, r5Trend, l5Validation } = input;
 
     // Ensure dailyData is sorted chronologically if not already guaranteed by caller
-    const sortedDailyData = [...dailyData].sort((a,b) => {
+    const sortedData = [...dailyData].sort((a,b) => {
         const dateA = parseISO(a.date);
         const dateB = parseISO(b.date);
         if (!isValid(dateA) || !isValid(dateB)) return 0;
@@ -542,26 +546,22 @@ export function analyzeForWChange(input: WChangeAnalysisInput): WChangeAnalysisO
     });
 
 
-    if (sortedDailyData.length < 2) { // Need at least T and T-1
-        console.warn(`Not enough data for ${stockName} in analyzeForWChange. Required 2, got ${sortedDailyData.length}`);
+    if (sortedData.length < 2) { // Need at least T and T-1
+        console.warn(`Not enough data for ${stockName} in analyzeForWChange. Required 2, got ${sortedData.length}`);
         return null;
     }
 
     // T is the last element, T-1 is the second to last, T-2 is the third to last
-    const tData = sortedDailyData[sortedDailyData.length - 1];
-    const tMinus1Data = sortedDailyData[sortedDailyData.length - 2];
+    const tData = sortedData[sortedData.length - 1];
+    const tMinus1Data = sortedData[sortedData.length - 2];
     // Ensure data for T-2 is available by checking if there are at least 3 data points
-    const tMinus2Data = sortedDailyData.length >= 3 ? sortedDailyData[sortedDailyData.length - 3] : null;
+    const tMinus2Data = sortedData.length >= 3 ? sortedData[sortedData.length - 3] : null;
 
     if (!tData || !tMinus1Data) {
         console.warn(`Missing T or T-1 data for ${stockName} in analyzeForWChange.`);
         return null;
     }
     
-    // Ensure dates are what we expect for T and T-1 for robust analysis
-    // This check is more for logical consistency if dailyData might have gaps
-    // For W.Report, if we select C.Day, T will be C.Day, T-1 will be C.Day-1
-
     const averageMetric = tData['ATR'] ?? null; // Using ATR[T] as Average Metric
     const fivePercentThreshold = averageMetric !== null ? averageMetric * 0.05 : null;
 
@@ -590,11 +590,11 @@ export function analyzeForWChange(input: WChangeAnalysisInput): WChangeAnalysisO
     const validationFlag = l5Validation ?? false; // Default to false if not provided
 
     const isConfirmedGreenTrend = isGreenJNSARTrigger && currentTrend === 'R';
-    const isStrongGreenSignal = isConfirmedGreenTrend && validationFlag; // This flag is not used in WReport output, but kept for consistency with WChange
+    const isStrongGreenSignal = isConfirmedGreenTrend && validationFlag; 
     const isConfirmedRedTrend = isRedJNSARTrigger && currentTrend === 'D';
-    const isStrongRedSignal = isConfirmedRedTrend && validationFlag; // This flag is not used in WReport output, but kept for consistency with WChange
+    const isStrongRedSignal = isConfirmedRedTrend && validationFlag; 
 
-    // Calculate new fields
+    // Calculate new fields for W.Report context or more detailed W.Change
     const trend = currentTrend; // Directly use the passed-in r5Trend
 
     const jnsarVsClose = (jnsarT !== null && closeT !== null) ? (jnsarT < closeT ? 'Bullish' : 'Bearish') : null;
@@ -602,54 +602,44 @@ export function analyzeForWChange(input: WChangeAnalysisInput): WChangeAnalysisO
 
     let signalType: 'Flip' | 'Continuation' | 'New Entry' | null = null;
     if (isGreenJNSARTrigger || isRedJNSARTrigger) {
-        // Determine the JNSAR vs Close relationship for T-1
         const prevJnsarVsClose = (jnsarTminus1 !== null && closeTminus1 !== null) ? (jnsarTminus1 < closeTminus1 ? 'Bullish' : 'Bearish') : null;
-
-        // Check for Flip signal
         if (prevJnsarVsClose !== null && jnsarVsClose !== null && prevJnsarVsClose !== jnsarVsClose) {
-            if (isGreenJNSARTrigger && prevJnsarVsClose === 'Bearish' && jnsarVsClose === 'Bullish') signalType = 'Flip'; // Green Flip
-            if (isRedJNSARTrigger && prevJnsarVsClose === 'Bullish' && jnsarVsClose === 'Bearish') signalType = 'Flip'; // Red Flip
+            if (isGreenJNSARTrigger && prevJnsarVsClose === 'Bearish' && jnsarVsClose === 'Bullish') signalType = 'Flip';
+            if (isRedJNSARTrigger && prevJnsarVsClose === 'Bullish' && jnsarVsClose === 'Bearish') signalType = 'Flip';
+         } else if (signalType === null && prevJnsarVsClose !== null && jnsarVsClose !== null && prevJnsarVsClose === jnsarVsClose) {
+             if (isGreenJNSARTrigger && jnsarVsClose === 'Bullish') signalType = 'Continuation';
+             if (isRedJNSARTrigger && jnsarVsClose === 'Bearish') signalType = 'Continuation';
          }
-         // Check for Continuation signal (if not a Flip)
-         if (signalType === null && prevJnsarVsClose !== null && jnsarVsClose !== null && prevJnsarVsClose === jnsarVsClose) {
-             if (isGreenJNSARTrigger && jnsarVsClose === 'Bullish') signalType = 'Continuation'; // Green Continuation
-             if (isRedJNSARTrigger && jnsarVsClose === 'Bearish') signalType = 'Continuation'; // Red Continuation
-         }
-         // New Entry logic requires more historical data; leave as null for now.
     }
 
-    let trendSignalSummary: 'Long Confirmed' | 'Long Not Confirmed' | 'Short Confirmed' | 'Short Not Confirmed' | 'Green Flip' | 'Red Flip' | null = null;
-
- if (isGreenJNSARTrigger && (jnsarTminus1 !== null && closeTminus1 !== null && jnsarTminus1 > closeTminus1)) { // Green Flip
- trendSignalSummary = 'Green Flip';
-    } else if (isRedJNSARTrigger && (jnsarTminus1 !== null && closeTminus1 !== null && jnsarTminus1 < closeTminus1)) { // Red Flip
- trendSignalSummary = 'Red Flip';
+    let trendSignalSummary: WChangeSignalSummary = null;
+    if (isGreenJNSARTrigger && (jnsarTminus1 !== null && closeTminus1 !== null && jnsarTminus1 > closeTminus1)) { 
+        trendSignalSummary = 'Green Flip';
+    } else if (isRedJNSARTrigger && (jnsarTminus1 !== null && closeTminus1 !== null && jnsarTminus1 < closeTminus1)) { 
+        trendSignalSummary = 'Red Flip';
     } else if (isConfirmedGreenTrend) {
         trendSignalSummary = 'Long Confirmed';
     } else if (isConfirmedRedTrend) {
         trendSignalSummary = 'Short Confirmed';
-    } else if (isGreenJNSARTrigger && (jnsarTminus1 !== null && closeTminus1 !== null && jnsarTminus1 > closeTminus1)) { // Green Flip condition check
-         trendSignalSummary = 'Green Flip';
-    } else if (isRedJNSARTrigger && (jnsarTminus1 !== null && closeTminus1 !== null && jnsarTminus1 < closeTminus1)) { // Red Flip condition check
-        trendSignalSummary = 'Red Flip';
-    } else if (isGreenJNSARTrigger) { // Green Trigger without confirmed trend or being a Flip
+    } else if (isGreenJNSARTrigger) { 
         trendSignalSummary = 'Long Not Confirmed';
-    } else if (isRedJNSARTrigger) { // Red Trigger without confirmed trend or being a Flip
+    } else if (isRedJNSARTrigger) { 
          trendSignalSummary = 'Short Not Confirmed';
     }
 
-    // Extract last 5 days of relevant data for context
-    const last5DaysDataInput = sortedDailyData.slice(-5);
-    const last5DayVolumes = last5DaysDataInput.map(d => d.volume ?? null);
-    const last5DayJNSAR = last5DaysDataInput.map(d => d['JNSAR'] ?? null);
-    const last5DayClose = last5DaysDataInput.map(d => d.close ?? null);
-    const last5DayOHLC = last5DaysDataInput.map(d => ({
+    // Extract last 5 periods of relevant data for context
+    const last5PeriodsDataInput = sortedData.slice(-5);
+    const last5PeriodsVolumes = last5PeriodsDataInput.map(d => d.volume ?? null);
+    const last5PeriodsJNSAR = last5PeriodsDataInput.map(d => d['JNSAR'] ?? null);
+    const last5PeriodsClose = last5PeriodsDataInput.map(d => d.close ?? null);
+    const last5PeriodsOHLC = last5PeriodsDataInput.map(d => ({
         date: d.date,
         open: d.open,
         high: d.high,
         low: d.low,
         close: d.close,
         volume: d.volume,
+        sector: d.sector
     }));
 
 
@@ -663,10 +653,10 @@ export function analyzeForWChange(input: WChangeAnalysisInput): WChangeAnalysisO
         closeT,
         closeTminus1,
         closeTminus2,
-        last5DayVolumes,
-        last5DayJNSAR,
-        last5DayClose,
-        last5DayOHLC,
+        last5PeriodsVolumes,
+        last5PeriodsJNSAR,
+        last5PeriodsClose,
+        last5PeriodsOHLC,
         isGreenJNSARTrigger,
         isRedJNSARTrigger,
         currentTrend,
@@ -675,7 +665,6 @@ export function analyzeForWChange(input: WChangeAnalysisInput): WChangeAnalysisO
         isStrongGreenSignal,
         isConfirmedRedTrend,
         isStrongRedSignal,
-
         trend,
         jnsarVsClose,
         validation,
@@ -683,5 +672,3 @@ export function analyzeForWChange(input: WChangeAnalysisInput): WChangeAnalysisO
         trendSignalSummary,
     };
 }
-
-    
