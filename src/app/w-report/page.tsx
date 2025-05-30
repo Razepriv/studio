@@ -13,7 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell, TableCaption } from "@/components/ui/table";
-import { useToast as useShadToast } from "@/hooks/use-toast"; // Renamed to avoid conflict
+import { useToast as useShadToast } from "@/hooks/use-toast";
 import { getStockData, type StockData } from '@/services/stock-data';
 import { processStockData, analyzeForWChange, type CalculatedStockData, type WChangeAnalysisOutput, type WChangeSignalSummary } from '@/lib/calculations';
 import { cn } from '@/lib/utils';
@@ -113,118 +113,129 @@ const WReportPage: FC = () => {
   }, [reportDate]);
 
   useEffect(() => {
-    if (!reportDate) return; // Don't fetch if no date is selected
+    if (!reportDate) {
+      setLoading(false);
+      setReportData([]);
+      setError("Please select a report date.");
+      return;
+    }
 
     const fetchAndProcessReportData = async () => {
       setLoading(true);
       setError(null);
       setProcessedCount(0);
-      setReportData([]); // Clear previous data
+      setReportData([]); 
 
       const totalStocks = ALL_POSSIBLE_STOCKS.length;
       const allReportRows: ReportRowData[] = [];
-
       const endDateForFetch = format(reportDate, 'yyyy-MM-dd');
+      let accumulatedErrors: string[] = [];
 
-      for (const stockTicker of ALL_POSSIBLE_STOCKS) {
-        try {
-          // Fetch ~60 days of daily data ending at reportDate for each stock
-          // This ensures enough historical data for indicators on C.Day, C-1, ..., C-4
-          const historicalDailyData: StockData[] = await getStockData(stockTicker, 60, endDateForFetch, '1d');
-          
-          if (historicalDailyData && historicalDailyData.length > 0) {
-            const processedDailyData: CalculatedStockData[] = processStockData(historicalDailyData, historicalDailyData.map(d => d.date));
+      try {
+        for (const stockTicker of ALL_POSSIBLE_STOCKS) {
+          try {
+            const historicalDailyData: StockData[] = await getStockData(stockTicker, 60, endDateForFetch, '1d');
             
-            // Find data points for C.Day, C-1, ..., C-4
-            const cDayData = processedDailyData.find(d => d.date === datesToDisplay.cDay);
-            const cMinus1Data = processedDailyData.find(d => d.date === datesToDisplay.cMinus1);
-            const cMinus2Data = processedDailyData.find(d => d.date === datesToDisplay.cMinus2);
-            const cMinus3Data = processedDailyData.find(d => d.date === datesToDisplay.cMinus3);
-            const cMinus4Data = processedDailyData.find(d => d.date === datesToDisplay.cMinus4);
+            if (historicalDailyData && historicalDailyData.length > 0) {
+              const processedDailyData: CalculatedStockData[] = processStockData(historicalDailyData, historicalDailyData.map(d => d.date));
+              
+              const cDayData = processedDailyData.find(d => d.date === datesToDisplay.cDay);
+              const cMinus1Data = processedDailyData.find(d => d.date === datesToDisplay.cMinus1);
+              const cMinus2Data = processedDailyData.find(d => d.date === datesToDisplay.cMinus2);
+              const cMinus3Data = processedDailyData.find(d => d.date === datesToDisplay.cMinus3);
+              const cMinus4Data = processedDailyData.find(d => d.date === datesToDisplay.cMinus4);
 
-            const sector = historicalDailyData[0]?.sector ?? null; // Basic sector extraction
+              const sector = historicalDailyData[0]?.sector ?? null; 
 
-            // Determine Green/Red triggers specifically for C.Day
-            // We need to pass data up to C.Day to analyzeForWChange
-            const contextForWChange = processedDailyData.filter(d => {
-                const dDate = parseISO(d.date);
-                return isValid(dDate) && dDate <= parseISO(datesToDisplay.cDay);
-            });
+              const contextForWChange = processedDailyData.filter(d => {
+                  const dDate = parseISO(d.date);
+                  return isValid(dDate) && dDate <= parseISO(datesToDisplay.cDay);
+              });
 
-            let greenTrigger = '0';
-            let redTrigger = '0';
+              let greenTrigger = '0';
+              let redTrigger = '0';
 
-            if (contextForWChange.length >=2) { // analyzeForWChange needs at least 2 data points
-                const wChangeAnalysisForCDay = analyzeForWChange({
-                    stockName: stockTicker,
-                    dailyData: contextForWChange, 
-                    // r5Trend and l5Validation defaults will apply
-                });
-                if (wChangeAnalysisForCDay?.isGreenJNSARTrigger) greenTrigger = stockTicker;
-                if (wChangeAnalysisForCDay?.isRedJNSARTrigger) redTrigger = stockTicker;
+              if (contextForWChange.length >=2) { 
+                  const wChangeAnalysisForCDay = analyzeForWChange({
+                      stockName: stockTicker,
+                      dailyData: contextForWChange, 
+                  });
+                  if (wChangeAnalysisForCDay?.isGreenJNSARTrigger) greenTrigger = stockTicker;
+                  if (wChangeAnalysisForCDay?.isRedJNSARTrigger) redTrigger = stockTicker;
+              }
+              
+              const reportRow: ReportRowData = {
+                stockTicker,
+                sector,
+                cDayDate: cDayData?.date ?? datesToDisplay.cDay,
+                cDayOpen: cDayData?.open ?? null,
+                cDayHigh: cDayData?.high ?? null,
+                cDayLow: cDayData?.low ?? null,
+                cDayClose: cDayData?.close ?? null,
+                cDayVolume: cDayData?.volume ?? null,
+                cDay5EMA: cDayData?.['5-EMA'] ?? null,
+                cDay5LEMA: cDayData?.['5-LEMA'] ?? null,
+                cDay5HEMA: cDayData?.['5-HEMA'] ?? null,
+                cDayATR: cDayData?.['ATR'] ?? null,
+                cDayPP: cDayData?.['PP'] ?? null,
+                cDayH1: cDayData?.['H1'] ?? null,
+                cDayL1: cDayData?.['L1'] ?? null,
+                cDayH2: cDayData?.['H2'] ?? null,
+                cDayL2: cDayData?.['L2'] ?? null,
+                cDayH3: cDayData?.['H3'] ?? null,
+                cDayL3: cDayData?.['L3'] ?? null,
+                cDayH4: cDayData?.['H4'] ?? null,
+                cDayL4: cDayData?.['L4'] ?? null,
+                cDayJNSAR: cDayData?.['JNSAR'] ?? null,
+                jnsarCMinus1: cMinus1Data?.['JNSAR'] ?? null,
+                jnsarCMinus2: cMinus2Data?.['JNSAR'] ?? null,
+                jnsarCMinus3: cMinus3Data?.['JNSAR'] ?? null,
+                jnsarCMinus4: cMinus4Data?.['JNSAR'] ?? null,
+                changedToGreen: greenTrigger,
+                changedToRed: redTrigger,
+                cDayHH: cDayData?.HH ?? '0',
+                cDayLL: cDayData?.LL ?? '0',
+                cDayCL: cDayData?.CL ?? '0',
+                cDayDiff: cDayData?.Diff ?? null,
+                cDayAvgVolume: cDayData?.AvgVolume ?? null,
+                cDayVolumeAboveAvg: cDayData?.['Volume > 150%'] ?? null,
+                cDayLongTarget: cDayData?.LongTarget ?? null,
+                cDayShortTarget: cDayData?.ShortTarget ?? null,
+                cDayLongEntry: cDayData?.['Long@'] ?? null,
+                cDayShortEntry: cDayData?.['Short@'] ?? null,
+              };
+              allReportRows.push(reportRow);
             }
-            
-            const reportRow: ReportRowData = {
-              stockTicker,
-              sector,
-              cDayDate: cDayData?.date ?? datesToDisplay.cDay,
-              cDayOpen: cDayData?.open ?? null,
-              cDayHigh: cDayData?.high ?? null,
-              cDayLow: cDayData?.low ?? null,
-              cDayClose: cDayData?.close ?? null,
-              cDayVolume: cDayData?.volume ?? null,
-              cDay5EMA: cDayData?.['5-EMA'] ?? null,
-              cDay5LEMA: cDayData?.['5-LEMA'] ?? null,
-              cDay5HEMA: cDayData?.['5-HEMA'] ?? null,
-              cDayATR: cDayData?.['ATR'] ?? null,
-              cDayPP: cDayData?.['PP'] ?? null,
-              cDayH1: cDayData?.['H1'] ?? null,
-              cDayL1: cDayData?.['L1'] ?? null,
-              cDayH2: cDayData?.['H2'] ?? null,
-              cDayL2: cDayData?.['L2'] ?? null,
-              cDayH3: cDayData?.['H3'] ?? null,
-              cDayL3: cDayData?.['L3'] ?? null,
-              cDayH4: cDayData?.['H4'] ?? null,
-              cDayL4: cDayData?.['L4'] ?? null,
-              cDayJNSAR: cDayData?.['JNSAR'] ?? null,
-              jnsarCMinus1: cMinus1Data?.['JNSAR'] ?? null,
-              jnsarCMinus2: cMinus2Data?.['JNSAR'] ?? null,
-              jnsarCMinus3: cMinus3Data?.['JNSAR'] ?? null,
-              jnsarCMinus4: cMinus4Data?.['JNSAR'] ?? null,
-              changedToGreen: greenTrigger,
-              changedToRed: redTrigger,
-              cDayHH: cDayData?.HH ?? '0',
-              cDayLL: cDayData?.LL ?? '0',
-              cDayCL: cDayData?.CL ?? '0',
-              cDayDiff: cDayData?.Diff ?? null,
-              cDayAvgVolume: cDayData?.AvgVolume ?? null,
-              cDayVolumeAboveAvg: cDayData?.['Volume > 150%'] ?? null,
-              cDayLongTarget: cDayData?.LongTarget ?? null,
-              cDayShortTarget: cDayData?.ShortTarget ?? null,
-              cDayLongEntry: cDayData?.['Long@'] ?? null,
-              cDayShortEntry: cDayData?.['Short@'] ?? null,
-            };
-            allReportRows.push(reportRow);
+          } catch (err: any) {
+            console.error(`Error fetching or processing data for ${stockTicker} on W.Report:`, err);
+            accumulatedErrors.push(`Error for ${stockTicker}: ${err.message}`);
           }
-        } catch (err: any) {
-          console.error(`Error fetching or processing data for ${stockTicker} on W.Report:`, err);
-          setError(`Error for ${stockTicker}: ${err.message}. Some data might be missing.`);
-          // Continue processing other stocks
+          setProcessedCount(count => count + 1);
         }
-        setProcessedCount(count => count + 1);
-      }
-      setReportData(allReportRows);
 
-      if (allReportRows.length === 0 && totalStocks > 0 && !error) {
-        toast({ title: "No Data", description: `No report data could be generated for ${format(reportDate, "PPP")}. Check data availability for this date.` });
-      } else if (allReportRows.length > 0) {
-        toast({ title: "Report Generated", description: `Successfully processed report data for ${format(reportDate, "PPP")}.` });
-      }
-      // If there was an error, it's already set and will be displayed.
+        if (accumulatedErrors.length > 0) {
+          setError(accumulatedErrors.join('\n'));
+        }
+        setReportData(allReportRows);
 
-    } finally {
-      setLoading(false);
-    }
+        if (allReportRows.length === 0 && totalStocks > 0 && accumulatedErrors.length === 0) {
+          toast({ title: "No Data", description: `No report data could be generated for ${format(reportDate, "PPP")}. Check data availability for this date.` });
+        } else if (allReportRows.length > 0) {
+          toast({ title: "Report Generated", description: `Successfully processed report data for ${format(reportDate, "PPP")}.` });
+        } else if (accumulatedErrors.length > 0) {
+             toast({ variant: "destructive", title: "Report Incomplete", description: "Some stock data could not be processed. See errors below." });
+        }
+
+      } catch (overallError: any) {
+        console.error("Overall error in W.Report data fetching:", overallError);
+        setError(prevError => {
+            const newMsg = `An unexpected error occurred during report generation: ${overallError.message}`;
+            return prevError ? `${prevError}\n${newMsg}` : newMsg;
+        });
+        toast({ variant: "destructive", title: "Report Generation Failed", description: "Could not complete data processing due to an unexpected error." });
+      } finally {
+        setLoading(false);
+      }
     };
 
     fetchAndProcessReportData();
@@ -234,7 +245,7 @@ const WReportPage: FC = () => {
   const formatReportValue = (value: any): string | number => {
     if (value === null || value === undefined) return '-';
     if (typeof value === 'number') return parseFloat(value.toFixed(2));
-    if (typeof value === 'boolean') return value ? 'Y' : 'N'; // Or TRUE/FALSE
+    if (typeof value === 'boolean') return value ? 'Y' : 'N'; 
     return String(value);
   };
   
@@ -265,11 +276,11 @@ const WReportPage: FC = () => {
             'H2': row.cDayH2, 'L2': row.cDayL2,
             'H3': row.cDayH3, 'L3': row.cDayL3,
             'H4': row.cDayH4, 'L4': row.cDayL4,
-            [`JNSAR ${format(parseISO(datesToDisplay.cDay), 'ddMMMyy')}`]: row.cDayJNSAR,
-            [`JNSAR ${format(parseISO(datesToDisplay.cMinus1), 'ddMMMyy')}`]: row.jnsarCMinus1,
-            [`JNSAR ${format(parseISO(datesToDisplay.cMinus2), 'ddMMMyy')}`]: row.jnsarCMinus2,
-            [`JNSAR ${format(parseISO(datesToDisplay.cMinus3), 'ddMMMyy')}`]: row.jnsarCMinus3,
-            [`JNSAR ${format(parseISO(datesToDisplay.cMinus4), 'ddMMMyy')}`]: row.jnsarCMinus4,
+            [`JNSAR ${reportDate ? format(parseISO(datesToDisplay.cDay), 'ddMMMyy') : 'C.Day'}`]: row.cDayJNSAR,
+            [`JNSAR ${reportDate ? format(parseISO(datesToDisplay.cMinus1), 'ddMMMyy') : 'C-1'}`]: row.jnsarCMinus1,
+            [`JNSAR ${reportDate ? format(parseISO(datesToDisplay.cMinus2), 'ddMMMyy') : 'C-2'}`]: row.jnsarCMinus2,
+            [`JNSAR ${reportDate ? format(parseISO(datesToDisplay.cMinus3), 'ddMMMyy') : 'C-3'}`]: row.jnsarCMinus3,
+            [`JNSAR ${reportDate ? format(parseISO(datesToDisplay.cMinus4), 'ddMMMyy') : 'C-4'}`]: row.jnsarCMinus4,
             'Chngd to GREEN': row.changedToGreen,
             'Chngd to RED': row.changedToRed,
             'HH': row.cDayHH,
@@ -298,7 +309,7 @@ const WReportPage: FC = () => {
     }
   };
   
-  const scrollAreaHeight = "h-[calc(100vh-280px)]"; // Adjust based on header/footer height
+  const scrollAreaHeight = "h-[calc(100vh-280px)]"; 
 
   return (
     <main className="container mx-auto py-6 px-4">
@@ -342,26 +353,26 @@ const WReportPage: FC = () => {
                 </div>
             </CardHeader>
             <CardContent className="p-0">
-                {error && <Alert variant="destructive" className="m-4"><AlertTriangle className="h-4 w-4" /><AlertTitle>Error</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
+                {error && <Alert variant="destructive" className="m-4"><AlertTriangle className="h-4 w-4" /><AlertTitle>Error Details</AlertTitle><AlertDescription className="whitespace-pre-line max-h-32 overflow-y-auto">{error}</AlertDescription></Alert>}
                 
                 <ScrollArea className={scrollAreaHeight}>
                     <Table>
                         <TableHeader className="sticky top-0 bg-card z-10">
                             <TableRow>
-                                <TableHead className="min-w-[100px]">Scrip</TableHead>
-                                <TableHead className="min-w-[100px]">Sector</TableHead>
-                                <TableHead className="min-w-[100px]">Close ({format(parseISO(datesToDisplay.cDay), 'ddMMMyy')})</TableHead>
-                                <TableHead className="min-w-[120px]">JNSAR ({format(parseISO(datesToDisplay.cDay), 'ddMMMyy')})</TableHead>
-                                <TableHead className="min-w-[120px]">JNSAR ({format(parseISO(datesToDisplay.cMinus1), 'ddMMMyy')})</TableHead>
-                                <TableHead className="min-w-[120px]">JNSAR ({format(parseISO(datesToDisplay.cMinus2), 'ddMMMyy')})</TableHead>
-                                <TableHead className="min-w-[120px]">JNSAR ({format(parseISO(datesToDisplay.cMinus3), 'ddMMMyy')})</TableHead>
-                                <TableHead className="min-w-[120px]">JNSAR ({format(parseISO(datesToDisplay.cMinus4), 'ddMMMyy')})</TableHead>
-                                <TableHead className="min-w-[150px]">Chngd to GREEN</TableHead>
-                                <TableHead className="min-w-[150px]">Chngd to RED</TableHead>
+                                <TableHead className="min-w-[100px] whitespace-nowrap">Scrip</TableHead>
+                                <TableHead className="min-w-[100px] whitespace-nowrap">Sector</TableHead>
+                                <TableHead className="min-w-[100px] whitespace-nowrap">Close ({reportDate ? format(parseISO(datesToDisplay.cDay), 'ddMMMyy') : 'C.Day'})</TableHead>
+                                <TableHead className="min-w-[120px] whitespace-nowrap">JNSAR ({reportDate ? format(parseISO(datesToDisplay.cDay), 'ddMMMyy') : 'C.Day'})</TableHead>
+                                <TableHead className="min-w-[120px] whitespace-nowrap">JNSAR ({reportDate ? format(parseISO(datesToDisplay.cMinus1), 'ddMMMyy') : 'C-1'})</TableHead>
+                                <TableHead className="min-w-[120px] whitespace-nowrap">JNSAR ({reportDate ? format(parseISO(datesToDisplay.cMinus2), 'ddMMMyy') : 'C-2'})</TableHead>
+                                <TableHead className="min-w-[120px] whitespace-nowrap">JNSAR ({reportDate ? format(parseISO(datesToDisplay.cMinus3), 'ddMMMyy') : 'C-3'})</TableHead>
+                                <TableHead className="min-w-[120px] whitespace-nowrap">JNSAR ({reportDate ? format(parseISO(datesToDisplay.cMinus4), 'ddMMMyy') : 'C-4'})</TableHead>
+                                <TableHead className="min-w-[150px] whitespace-nowrap">Chngd to GREEN</TableHead>
+                                <TableHead className="min-w-[150px] whitespace-nowrap">Chngd to RED</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                        {loading && processedCount < ALL_POSSIBLE_STOCKS.length ? (
+                        {loading && processedCount < ALL_POSSIBLE_STOCKS.length && reportData.length === 0 ? (
                             [...Array(10)].map((_, i) => (
                                 <TableRow key={`skel-${i}`}>
                                     <TableCell><Skeleton className="h-5 w-full" /></TableCell>
@@ -379,29 +390,30 @@ const WReportPage: FC = () => {
                         ) : reportData.length > 0 ? (
                             reportData.map((row) => (
                             <TableRow key={row.stockTicker}>
-                                <TableCell className="font-medium">{row.stockTicker}</TableCell>
-                                <TableCell>{row.sector ?? '-'}</TableCell>
-                                <TableCell>{formatReportValue(row.cDayClose)}</TableCell>
-                                <TableCell>{formatReportValue(row.cDayJNSAR)}</TableCell>
-                                <TableCell>{formatReportValue(row.jnsarCMinus1)}</TableCell>
-                                <TableCell>{formatReportValue(row.jnsarCMinus2)}</TableCell>
-                                <TableCell>{formatReportValue(row.jnsarCMinus3)}</TableCell>
-                                <TableCell>{formatReportValue(row.jnsarCMinus4)}</TableCell>
-                                <TableCell className={row.changedToGreen !== '0' ? 'text-green-600 font-semibold' : ''}>{row.changedToGreen}</TableCell>
-                                <TableCell className={row.changedToRed !== '0' ? 'text-red-600 font-semibold' : ''}>{row.changedToRed}</TableCell>
+                                <TableCell className="font-medium whitespace-nowrap">{row.stockTicker}</TableCell>
+                                <TableCell className="whitespace-nowrap">{row.sector ?? '-'}</TableCell>
+                                <TableCell className="whitespace-nowrap">{formatReportValue(row.cDayClose)}</TableCell>
+                                <TableCell className="whitespace-nowrap">{formatReportValue(row.cDayJNSAR)}</TableCell>
+                                <TableCell className="whitespace-nowrap">{formatReportValue(row.jnsarCMinus1)}</TableCell>
+                                <TableCell className="whitespace-nowrap">{formatReportValue(row.jnsarCMinus2)}</TableCell>
+                                <TableCell className="whitespace-nowrap">{formatReportValue(row.jnsarCMinus3)}</TableCell>
+                                <TableCell className="whitespace-nowrap">{formatReportValue(row.jnsarCMinus4)}</TableCell>
+                                <TableCell className={cn("whitespace-nowrap", row.changedToGreen !== '0' ? 'text-green-600 font-semibold' : '')}>{row.changedToGreen}</TableCell>
+                                <TableCell className={cn("whitespace-nowrap", row.changedToRed !== '0' ? 'text-red-600 font-semibold' : '')}>{row.changedToRed}</TableCell>
                             </TableRow>
                             ))
                         ) : (
                             <TableRow>
                                 <TableCell colSpan={10} className="text-center h-24">
-                                    {loading ? <div className="flex items-center justify-center"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading report data...</div> : 'No data available for the selected date. Please pick a different date.'}
+                                    {loading ? <div className="flex items-center justify-center"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading report data...</div> : (error && error.includes("Please select a report date.")) ? "Please select a report date to generate the report." : "No data available for the selected date or an error occurred. Please try a different date or check error details."}
                                 </TableCell>
                             </TableRow>
                         )}
                         </TableBody>
                     </Table>
                 </ScrollArea>
-                {reportData.length > 0 && <TableCaption className="py-2">Displaying daily data for {reportData.length} stocks as of {reportDate ? format(reportDate, "PPP") : 'latest'}.</TableCaption>}
+                {reportData.length > 0 && !loading && <TableCaption className="py-2">Displaying daily data for {reportData.length} stocks as of {reportDate ? format(reportDate, "PPP") : 'latest'}.</TableCaption>}
+                 {reportData.length === 0 && !loading && !error && <TableCaption className="py-2">No report data generated for {reportDate ? format(reportDate, "PPP") : 'the selected date'}.</TableCaption>}
             </CardContent>
         </Card>
     </main>
