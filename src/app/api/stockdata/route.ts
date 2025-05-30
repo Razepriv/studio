@@ -9,6 +9,7 @@ export async function GET(request: NextRequest) {
   const ticker = searchParams.get('ticker');
   const daysParam = searchParams.get('days');
   const endDateParam = searchParams.get('endDate');
+  const intervalParam = searchParams.get('interval'); // New interval parameter
 
   if (!ticker) {
     return NextResponse.json({ message: 'Ticker symbol is required' }, { status: 400 });
@@ -16,7 +17,7 @@ export async function GET(request: NextRequest) {
 
   const days = daysParam ? parseInt(daysParam, 10) : 60;
   if (isNaN(days) || days <= 0) {
-    return NextResponse.json({ message: 'Invalid number of days' }, { status: 400 });
+    return NextResponse.json({ message: 'Invalid number of days/periods' }, { status: 400 });
   }
 
   let period2: Date;
@@ -36,13 +37,29 @@ export async function GET(request: NextRequest) {
        console.log(`Using ticker as is: ${ticker}`);
    }
 
-  const period1 = subDays(period2, days);
+  // Adjust period1 calculation based on interval
+  // For daily, days is days. For weekly, days is weeks.
+  // Yahoo finance `historical` uses period1 and period2 to define the range.
+  // The `days` parameter is more of a "count of periods" if we fetch backward.
+  // For simplicity, we'll keep `subDays` for now; `yahooFinance` will fetch appropriate points within the date range for the interval.
+  // If fetching `X` number of weekly points ending `period2`, `period1` should be `period2 - X weeks`.
+  // This API currently uses `days` as an approximate lookback period rather than a strict count.
+  let period1: Date;
+  if (intervalParam === '1wk') {
+    period1 = subDays(period2, days * 7); // Approximate X weeks back
+  } else {
+    period1 = subDays(period2, days); // Approximate X days back
+  }
+
+
+  const validIntervals = ['1d', '1wk', '1mo'];
+  const interval = (intervalParam && validIntervals.includes(intervalParam)) ? intervalParam as '1d' | '1wk' | '1mo' : '1d';
 
   try {
     const queryOptions = {
         period1: format(period1, 'yyyy-MM-dd'),
         period2: format(period2, 'yyyy-MM-dd'),
-        interval: '1d' as const, // Ensure interval is '1d'
+        interval: interval,
       };
 
     console.log(`Fetching data for ${finalTicker} with options:`, queryOptions);
@@ -66,15 +83,12 @@ export async function GET(request: NextRequest) {
       date: format(new Date(result.date), 'yyyy-MM-dd'), // Ensure date is in 'yyyy-MM-dd' string format
       ...result, // Include all properties from the historical result
       sector: sector, // Add the fetched sector
-      // adjClose: result.adjClose // Include if needed
     })).filter(d => d.open && d.high && d.low && d.close && d.volume); // Filter out entries with null essential data
 
     if (formattedData.length === 0) {
-        console.warn(`No data returned from Yahoo Finance for ${finalTicker}`);
-        // Return empty array, let frontend handle 'No data' state
+        console.warn(`No data returned from Yahoo Finance for ${finalTicker} with interval ${interval}`);
     }
 
-    // Add cache-control headers to prevent aggressive caching
     const headers = new Headers();
     headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
     headers.set('Pragma', 'no-cache');
@@ -83,10 +97,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(formattedData, { headers });
 
   } catch (error: any) {
-    console.error(`Yahoo Finance API Error for ${finalTicker}:`, error.message || error);
+    console.error(`Yahoo Finance API Error for ${finalTicker} (interval: ${interval}):`, error.message || error);
      let errorMessage = `Failed to fetch data for ${ticker}.`;
      if (error.message && (error.message.includes('404 Not Found') || error.message.toLowerCase().includes('no data found'))) {
-        errorMessage = `Ticker symbol '${ticker}' (tried as '${finalTicker}') not found or no data available on Yahoo Finance. It might be delisted or the symbol is incorrect.`;
+        errorMessage = `Ticker symbol '${ticker}' (tried as '${finalTicker}') not found or no data available on Yahoo Finance for interval ${interval}. It might be delisted or the symbol is incorrect.`;
      } else if (error.message) {
         errorMessage += ` Details: ${error.message}`;
      }

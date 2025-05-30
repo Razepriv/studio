@@ -1,39 +1,37 @@
 import { format } from 'date-fns';
 
 /**
- * Represents raw stock data for a single day, including the date.
+ * Represents raw stock data for a single day or period (e.g., week), including the date.
  */
 export interface StockData {
   /**
-   * The date of the stock data point (YYYY-MM-DD).
+   * The date of the stock data point (YYYY-MM-DD). For weekly, typically the Monday of the week.
    */
   date: string;
   /**
-   * The opening price of the stock.
+   * The opening price of the stock for the period.
    */
   open: number;
   /**
-   * The highest price of the stock.
+   * The highest price of the stock for the period.
    */
   high: number;
   /**
-   * The lowest price of the stock.
+   * The lowest price of the stock for the period.
    */
   low: number;
   /**
-   * The closing price of the stock.
+   * The closing price of the stock for the period.
    */
   close: number;
   /**
-   * The trading volume of the stock.
+   * The trading volume of the stock for the period.
    */
   volume: number;
   /**
  * The sector the stock belongs to (optional).
  */
   sector?: string | null;
-  // Add adj_close if required by calculations and available from the API
-  // adj_close?: number;
 }
 
 
@@ -41,28 +39,27 @@ export interface StockData {
  * Asynchronously retrieves historical stock data for a given stock ticker symbol
  * by calling the internal API route `/api/stockdata`.
  *
- * @param ticker The stock ticker symbol (e.g., 'AAPL', 'ABCAPITAL.NS'). Ensure it includes the necessary suffix like '.NS' for NSE stocks if required by the API.
- * @param days The number of historical days to fetch. Defaults to 60.
- * @returns A promise that resolves to an array of StockData objects.
+ * @param ticker The stock ticker symbol (e.g., 'AAPL', 'ABCAPITAL.NS').
+ * @param periods The number of historical periods (days, weeks, months based on interval) to fetch. Defaults to 60.
  * @param endDate Optional end date in 'yyyy-MM-dd' format. If provided, data will be fetched up to this date.
+ * @param interval Optional data interval ('1d', '1wk', '1mo'). Defaults to '1d'.
+ * @returns A promise that resolves to an array of StockData objects.
  * @throws Throws an error if the API call fails or returns an error status.
  */
-export async function getStockData(ticker: string, days: number = 60, endDate?: string): Promise<StockData[]> {
-  console.log(`Fetching stock data for: ${ticker} via API route`);
+export async function getStockData(ticker: string, periods: number = 60, endDate?: string, interval: '1d' | '1wk' | '1mo' = '1d'): Promise<StockData[]> {
+  console.log(`Fetching stock data for: ${ticker} via API route with interval ${interval}`);
 
   const params = new URLSearchParams({
     ticker: ticker,
-    days: days.toString(),
+    days: periods.toString(), // 'days' param in API now means 'periods'
+    interval: interval,
   });
   if (endDate) {
     params.append('endDate', endDate);
   }
 
   try {
-    // Construct the full URL for the API route
-    // In a real deployment, use environment variables for the base URL
     const apiUrl = `/api/stockdata?${params.toString()}`;
-
     const response = await fetch(apiUrl);
 
     if (!response.ok) {
@@ -71,17 +68,10 @@ export async function getStockData(ticker: string, days: number = 60, endDate?: 
     }
 
     const data: StockData[] = await response.json();
-
-    // Optional: Ensure date is formatted correctly if needed, though API should return ISO string
-    // return data.map(d => ({
-    //     ...d,
-    //     date: format(new Date(d.date), 'yyyy-MM-dd') // Assuming API returns valid date string/timestamp
-    // }));
-     return data; // Assuming API returns dates as 'yyyy-MM-dd' strings
+    return data;
 
   } catch (error) {
-    console.error(`Error fetching data for ${ticker} from API route:`, error);
-    // Re-throw the error to be handled by the calling component (e.g., display an error message)
+    console.error(`Error fetching data for ${ticker} from API route (interval: ${interval}):`, error);
     if (error instanceof Error) {
         throw error;
     } else {

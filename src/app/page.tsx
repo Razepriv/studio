@@ -4,7 +4,7 @@
 import type { FC } from 'react';
 import { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
-import { subMonths, format as formatDateFns, isValid } from 'date-fns';
+import { subMonths, format as formatDateFns, isValid, subWeeks } from 'date-fns';
 import {
     Table,
     TableHeader,
@@ -49,8 +49,7 @@ const ALL_POSSIBLE_STOCKS = [
     'SAIL', 'SUNPHARMA', 'SUNTV', 'SYNGENE', 'TATACONSUM', 'TATAMOTORS', /* 'TATAMTRDVR', */ /* Usually less liquid, maybe omit */ 'TATAPOWER', 'TATASTEEL',
     'TCS', 'TECHM', 'TITAN', 'TORNTPHARM', 'TORNTPOWER', 'TRENT', 'TVSMOTOR', 'ULTRACEMCO', 'UBL', 'MCDOWELL-N', /* UNITED SPIRITS */
     'UPL', 'VEDL', 'VOLTAS', 'WHIRLPOOL', 'WIPRO', 'ZEEL', 'ZYDUSLIFE'
-    // Adding potentially missing but common ones if needed: BAJAJHLDNG, LTIM, M&M, M&MFIN, SAMVARDHANA, MAXFINANCIAL etc. - Added common variations
-].filter((v, i, a) => a.indexOf(v) === i).sort(); // Deduplicate and sort
+].filter((v, i, a) => a.indexOf(v) === i).sort(); // Deduplicate and sort - Count: 165
 
 
 const StockDataTable: FC = () => {
@@ -62,28 +61,28 @@ const StockDataTable: FC = () => {
     const { toast } = useToast();
     const [downloadPeriod, setDownloadPeriod] = useState<string>('3m'); // '3m', '6m', '9m', 'all'
     const [isDownloading, setIsDownloading] = useState<boolean>(false);
+    const dataInterval = '1wk'; // Set to '1wk' for weekly data
 
     useEffect(() => {
         const fetchData = async () => {
             setLoading(true);
             setError(null);
             try {
-                // Fetch up to ~9 months of data (270 days) to support download presets
-                const rawData: StockData[] = await getStockData(selectedStock, 270);
+                // Fetch up to ~3 years (156 weeks) of weekly data to support download presets
+                const rawData: StockData[] = await getStockData(selectedStock, 156, undefined, dataInterval);
 
                 if (rawData && rawData.length > 0) {
                     const dates = rawData.map(d => d.date);
-                    const processed = processStockData(rawData, dates);
-                    setFullCalculatedData(processed); // Store all processed data
+                    const processed = processStockData(rawData, dates); // processStockData will now calculate weekly indicators
+                    setFullCalculatedData(processed);
 
-                    // For display, show last N (e.g., 21 for indicators) + 60 days of data
-                    const N = 21; // Initial days for indicator calculation stability
-                    const displayData = processed.length > N ? processed.slice(N) : processed;
-                    setStockDataForDisplay(displayData.slice(-60)); // Display last 60 days
+                    // For display, show last 52 weeks (1 year) of data
+                    const displayData = processed.slice(-52);
+                    setStockDataForDisplay(displayData);
                 } else {
                     setFullCalculatedData([]);
                     setStockDataForDisplay([]);
-                    const message = `No data returned for ${selectedStock}. Check if the ticker is valid on Yahoo Finance (try adding '.NS' for NSE stocks).`;
+                    const message = `No weekly data returned for ${selectedStock}. Check if the ticker is valid on Yahoo Finance (try adding '.NS' for NSE stocks).`;
                     setError(message);
                      toast({
                          variant: "destructive",
@@ -93,7 +92,7 @@ const StockDataTable: FC = () => {
                 }
             } catch (err: any) {
                 console.error("Error fetching or processing stock data:", err);
-                const errorMessage = err.message || `Failed to load data for ${selectedStock}. Check console for details.`;
+                const errorMessage = err.message || `Failed to load weekly data for ${selectedStock}. Check console for details.`;
                 setError(errorMessage);
                 setFullCalculatedData([]);
                 setStockDataForDisplay([]);
@@ -108,39 +107,39 @@ const StockDataTable: FC = () => {
         };
 
         fetchData();
-    }, [selectedStock, toast]);
+    }, [selectedStock, toast]); // dataInterval is constant, no need to add to deps
 
     const columns: { key: keyof CalculatedStockData; label: string }[] = useMemo(() => [
-        { key: 'date', label: 'Date' },
+        { key: 'date', label: 'Week Start Date' }, // Label changed to reflect weekly
         { key: 'open', label: 'Open' },
         { key: 'high', label: 'High' },
         { key: 'low', label: 'Low' },
         { key: 'close', label: 'Close' },
         { key: 'volume', label: 'Volume' },
-        { key: '5-LEMA', label: '5-LEMA' },
-        { key: '5-EMA', label: '5-EMA' },
-        { key: '5-HEMA', label: '5-HEMA' },
-        { key: 'JNSAR', label: 'JNSAR' },
-        { key: 'HH', label: 'HH' },
-        { key: 'LL', label: 'LL' },
-        { key: 'CL', label: 'CL' },
-        { key: 'Diff', label: 'Diff' },
-        { key: 'ATR', label: 'ATR' },
-        { key: 'H4', label: 'H4' },
-        { key: 'H3', label: 'H3' },
-        { key: 'H2', label: 'H2' },
-        { key: 'H1', label: 'H1' },
-        { key: 'PP', label: 'PP' },
-        { key: 'L1', label: 'L1' },
-        { key: 'L2', label: 'L2' },
-        { key: 'L3', label: 'L3' },
-        { key: 'L4', label: 'L4' },
-        { key: 'Long@', label: 'Long@' },
-        { key: 'Short@', label: 'Short@' },
-        { key: 'Volume > 150%', label: 'Vol > 150%' },
-        { key: 'ShortTarget', label: 'Short Target' },
-        { key: 'LongTarget', label: 'Long Target' },
-        { key: 'AvgVolume', label: 'Avg Volume'},
+        { key: '5-LEMA', label: '5-Wk LEMA' }, // Label changed
+        { key: '5-EMA', label: '5-Wk EMA' },   // Label changed
+        { key: '5-HEMA', label: '5-Wk HEMA' }, // Label changed
+        { key: 'JNSAR', label: 'Weekly JNSAR' },// Label changed
+        { key: 'HH', label: 'Higher High (vs prev wk)' }, // Contextualized
+        { key: 'LL', label: 'Lower Low (vs prev wk)' },   // Contextualized
+        { key: 'CL', label: 'Close Lower (vs prev wk)' }, // Contextualized
+        { key: 'Diff', label: 'Weekly Diff' }, // Label changed
+        { key: 'ATR', label: 'Weekly ATR' },   // Label changed
+        { key: 'H4', label: 'Weekly H4' },     // Label changed
+        { key: 'H3', label: 'Weekly H3' },
+        { key: 'H2', label: 'Weekly H2' },
+        { key: 'H1', label: 'Weekly H1' },
+        { key: 'PP', label: 'Weekly PP' },
+        { key: 'L1', label: 'Weekly L1' },
+        { key: 'L2', label: 'Weekly L2' },
+        { key: 'L3', label: 'Weekly L3' },
+        { key: 'L4', label: 'Weekly L4' },
+        { key: 'Long@', label: 'Weekly Long@' },
+        { key: 'Short@', label: 'Weekly Short@' },
+        { key: 'Volume > 150%', label: 'Vol > 150% (vs avg wk vol)' }, // Contextualized
+        { key: 'ShortTarget', label: 'Weekly Short Target' },
+        { key: 'LongTarget', label: 'Weekly Long Target' },
+        { key: 'AvgVolume', label: 'Avg Weekly Volume'}, // Label changed
     ], []);
 
     const formatValueForDisplay = (value: any, key: keyof CalculatedStockData): React.ReactNode => {
@@ -160,6 +159,12 @@ const StockDataTable: FC = () => {
         if ((key === 'HH' || key === 'LL' || key === 'CL') && (value === 'Y' || value === '0')) {
            return value === 'Y' ? <span className="text-green-600 font-semibold">Y</span> : <span className="text-muted-foreground">0</span>;
         }
+        if (key === 'date' && typeof value === 'string') {
+            const dateObj = new Date(value);
+            if (isValid(dateObj)) {
+                return formatDateFns(dateObj, 'dd MMM yyyy'); // Format date for display
+            }
+        }
         return String(value);
     };
 
@@ -169,31 +174,27 @@ const StockDataTable: FC = () => {
             return;
         }
         setIsDownloading(true);
-        toast({ title: "Download Started", description: `Preparing ${selectedStock} data for Excel.` });
+        toast({ title: "Download Started", description: `Preparing ${selectedStock} weekly data for Excel.` });
 
         try {
-            let dataToFilter = [...fullCalculatedData]; // Use a copy
+            let dataToFilter = [...fullCalculatedData];
             const today = new Date();
-            let startDate: Date | null = null;
+            let startDateThreshold: Date | null = null;
 
-            if (downloadPeriod === '3m') startDate = subMonths(today, 3);
-            else if (downloadPeriod === '6m') startDate = subMonths(today, 6);
-            else if (downloadPeriod === '9m') startDate = subMonths(today, 9);
-            // 'all' means all fetched data (up to 270 days)
+            // Convert downloadPeriod to weeks for filtering weekly data
+            if (downloadPeriod === '3m') startDateThreshold = subMonths(today, 3); // ~13 weeks
+            else if (downloadPeriod === '6m') startDateThreshold = subMonths(today, 6); // ~26 weeks
+            else if (downloadPeriod === '9m') startDateThreshold = subMonths(today, 9); // ~39 weeks
+            // 'all' means all fetched weekly data (up to 156 weeks)
 
             let filteredData = dataToFilter;
-            if (startDate) {
+            if (startDateThreshold) {
                 filteredData = dataToFilter.filter(item => {
-                    const itemDate = new Date(item.date); // Assuming date is 'yyyy-MM-dd'
-                    return isValid(itemDate) && itemDate >= startDate!;
+                    const itemDate = parseISO(item.date); // date is 'yyyy-MM-dd' string
+                    return isValid(itemDate) && itemDate >= startDateThreshold!;
                 });
             }
             
-            // Ensure chronological order for Excel (oldest first)
-            // The data from processStockData should already be chronological. If not, sort here.
-            // filteredData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-
             if (filteredData.length === 0) {
                 toast({ variant: "destructive", title: "Download Error", description: "No data found for the selected period." });
                 setIsDownloading(false);
@@ -203,12 +204,10 @@ const StockDataTable: FC = () => {
             const dataForSheet = filteredData.map(row => {
                 const newRow: { [key: string]: any } = {};
                 columns.forEach(col => {
-                    // Use raw values for Excel where possible
                     let value = row[col.key];
-                     if (typeof value === 'number' && (col.key !== 'volume' && col.key !== 'AvgVolume')) { // Corrected key access
-                        // For numbers, keep them as numbers (no toFixed for Excel)
+                     if (typeof value === 'number' && (col.key !== 'volume' && col.key !== 'AvgVolume')) {
                         newRow[col.label] = value;
-                    } else if (col.key === 'date') { // Corrected key access
+                    } else if (col.key === 'date') {
                         newRow[col.label] = typeof value === 'string' ? value : (value instanceof Date ? formatDateFns(value, 'yyyy-MM-dd') : String(value));
                     }
                     else {
@@ -220,12 +219,12 @@ const StockDataTable: FC = () => {
 
             const worksheet = XLSX.utils.json_to_sheet(dataForSheet);
             const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, selectedStock);
+            XLSX.utils.book_append_sheet(workbook, worksheet, `${selectedStock}_Weekly`);
             
             const periodDesc = downloadPeriod === 'all' ? 'all_fetched' : downloadPeriod;
-            XLSX.writeFile(workbook, `${selectedStock}_data_${periodDesc}.xlsx`);
+            XLSX.writeFile(workbook, `${selectedStock}_weekly_data_${periodDesc}.xlsx`);
 
-            toast({ title: "Download Complete", description: `Data for ${selectedStock} downloaded.` });
+            toast({ title: "Download Complete", description: `Weekly data for ${selectedStock} downloaded.` });
         } catch (e: any) {
             console.error("Error generating Excel:", e);
             toast({ variant: "destructive", title: "Download Error", description: e.message || "Could not generate Excel file." });
@@ -234,14 +233,6 @@ const StockDataTable: FC = () => {
         }
     };
     
-    // Estimate AppHeader height (h-16 is 4rem = 64px)
-    // CardHeader height: ~60px
-    // Download controls row: ~56px (Select h-9 + Button h-9, with padding py-4 for their container)
-    // Total static elements height: 64px (AppHeader) + 60px (CardHeader) + 56px (DownloadControls) + ~16px (main padding) = ~196px
-    // Let's use a slightly more generous estimate, 200-220 for static elements above scroll
-    // Previous ScrollArea height: calc(100vh - 264px)
-    // With download controls, new height might be ~ calc(100vh - (264px + 56px)) = calc(100vh - 320px)
-    // Adjusted to ensure visibility, this might need tweaking based on exact component rendering heights.
     const scrollAreaHeight = "h-[calc(100vh-330px)]";
 
 
@@ -249,7 +240,7 @@ const StockDataTable: FC = () => {
         <Card className="m-4 shadow-lg border border-border rounded-lg">
              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 pt-4 px-4 border-b border-border">
                 <CardTitle className="text-xl font-semibold text-foreground">
-                    Stock Insights: {selectedStock}
+                    Stock Insights (Weekly): {selectedStock}
                 </CardTitle>
                  <div className="w-[200px]">
                      <Select value={selectedStock} onValueChange={setSelectedStock}>
@@ -288,42 +279,41 @@ const StockDataTable: FC = () => {
                 </div>
 
                 <CardContent className="p-0">
-  <div className="w-full overflow-x-auto">
-    <Table>
-      <TableHeader>
-        <TableRow>
-          {columns.map(col => (
-            <TableHead key={col.key}>{col.label}</TableHead>
-          ))}
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {loading ? (
-          [...Array(10)].map((_, i) => (
-            <TableRow key={i}>
-              {columns.map((col, j) => (
-                <TableCell key={j}>
-                  <Skeleton className="h-4 w-full" />
-                </TableCell>
-              ))}
-            </TableRow>
-          ))
-        ) : (
-          stockDataForDisplay.map((row, i) => (
-            <TableRow key={i}>
-              {columns.map((col, j) => (
-                <TableCell key={j}>
-                  {formatValueForDisplay(row[col.key], col.key)}
-                </TableCell>
-              ))}
-            </TableRow>
-          ))
-        )}
-      </TableBody>
-    </Table>
-  </div>
-</CardContent>
-
+                  <div className="w-full overflow-x-auto"> {/* Ensure table is scrollable horizontally */}
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          {columns.map(col => (
+                            <TableHead key={col.key} className="whitespace-nowrap">{col.label}</TableHead>
+                          ))}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {loading ? (
+                          [...Array(10)].map((_, i) => (
+                            <TableRow key={i}>
+                              {columns.map((col, j) => (
+                                <TableCell key={j}>
+                                  <Skeleton className="h-4 w-full" />
+                                </TableCell>
+                              ))}
+                            </TableRow>
+                          ))
+                        ) : (
+                          stockDataForDisplay.map((row, i) => (
+                            <TableRow key={i}>
+                              {columns.map((col, j) => (
+                                <TableCell key={j} className="whitespace-nowrap">
+                                  {formatValueForDisplay(row[col.key], col.key)}
+                                </TableCell>
+                              ))}
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
             </CardContent>
         </Card>
     );
@@ -336,4 +326,3 @@ export default function Home() {
       </main>
   );
 }
-
