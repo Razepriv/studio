@@ -40,7 +40,7 @@ const ALL_POSSIBLE_STOCKS = [
     'SAIL', 'SUNPHARMA', 'SUNTV', 'SYNGENE', 'TATACONSUM', 'TATAMOTORS', /* 'TATAMTRDVR', */ /* Usually less liquid, maybe omit */ 'TATAPOWER', 'TATASTEEL',
     'TCS', 'TECHM', 'TITAN', 'TORNTPHARM', 'TORNTPOWER', 'TRENT', 'TVSMOTOR', 'ULTRACEMCO', 'UBL', 'MCDOWELL-N', /* UNITED SPIRITS */
     'UPL', 'VEDL', 'VOLTAS', 'WHIRLPOOL', 'WIPRO', 'ZEEL', 'ZYDUSLIFE'
-].filter((v, i, a) => a.indexOf(v) === i).sort();
+].filter((v, i, a) => a.indexOf(v) === i).sort(); // Count: 165
 
 
 const WChangePage: FC = () => {
@@ -51,8 +51,8 @@ const WChangePage: FC = () => {
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [processedCount, setProcessedCount] = useState(0);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
-  const [filteredAnalysisResults, setFilteredAnalysisResults] = useState<WChangeAnalysisOutput[]>([]); // Store filtered results for display and download
-  const [selectedRange, setSelectedRange] = useState<string>('Current Week');
+  const [filteredAnalysisResults, setFilteredAnalysisResults] = useState<WChangeAnalysisOutput[]>([]);
+  const [selectedRange, setSelectedRange] = useState<string>('Current Week'); // This state is present but not fully driving logic yet
 
   useEffect(() => {
     const fetchAndAnalyzeData = async () => {
@@ -67,18 +67,18 @@ const WChangePage: FC = () => {
       for (let i = 0; i < totalStocks; i++) {
         const stockTicker = ALL_POSSIBLE_STOCKS[i];
         try {
-          // Fetch ~30-40 days for indicator stability, analyzeForWChange uses latest
-          const rawData: StockData[] = await getStockData(stockTicker,
-            30 // Fetch 30 days of data
-); 
-          if (rawData && rawData.length > 0) { // Ensure we have data to process
+          // Fetch 30 weeks of data for indicator stability, ending at selectedDate (or today)
+          // analyzeForWChange uses latest week from this data
+          const rawData: StockData[] = await getStockData(stockTicker, 30, endDate, '1wk');
+          
+          if (rawData && rawData.length > 0) {
             const dates = rawData.map(d => d.date);
-            // processStockData calculates daily indicators like JNSAR, ATR, Close etc.
-            const dailyCalculatedData: CalculatedStockData[] = processStockData(rawData, dates);
+            // processStockData calculates weekly indicators
+            const weeklyCalculatedData: CalculatedStockData[] = processStockData(rawData, dates);
             
             const analysis = analyzeForWChange({
               stockName: stockTicker,
-              dailyData: dailyCalculatedData,
+              dailyData: weeklyCalculatedData, // Passing weekly data here
               // r5Trend and l5Validation are not sourced yet, defaults will apply
             });
 
@@ -96,38 +96,33 @@ const WChangePage: FC = () => {
       if (results.length === 0 && totalStocks > 0 && !error) {
          toast({
             title: "Analysis Complete",
-            description: "No specific W.Change signals were triggered for the analyzed stocks based on current criteria.",
+            description: "No specific Weekly Change signals were triggered for the analyzed stocks based on current criteria.",
         });
       } else if (results.length > 0) {
          toast({
             title: "Analysis Complete",
-            description: `Successfully analyzed ${results.length} stocks for W.Change signals.`,
+            description: `Successfully analyzed ${results.length} stocks for Weekly Change signals.`,
         });
       }
 
-      setAnalysisResults(results); // Set analysis results after fetching and processing
+      setAnalysisResults(results);
       setLoading(false);
     };
-    fetchAndAnalyzeData(); // Initial fetch and analysis
-  }, [selectedDate, toast, ALL_POSSIBLE_STOCKS]); // Re-run when selectedDate changes, toast is available, or stocks list changes
+    fetchAndAnalyzeData();
+  }, [selectedDate, toast]); // Removed ALL_POSSIBLE_STOCKS from deps as it's constant
 
-  // Filter analysis results based on the selected date whenever selectedDate or analysisResults changes
+  // Display all analysis results; selectedDate influences the "as of" date for latest week.
   useEffect(() => {
-    const filtered = selectedDate
-      ? analysisResults.filter(analysis => {
-          // Assuming analysis.date is in 'yyyy-MM-dd' format
-          return analysis.date === format(selectedDate, 'yyyy-MM-dd');
-        })
-      : analysisResults; // Show all if no date is selected
-    setFilteredAnalysisResults(filtered);
-  }, [selectedDate, analysisResults]);
+    setFilteredAnalysisResults(analysisResults);
+  }, [analysisResults]);
 
   const renderTickerList = (tickers: string[]) => {
- return (
- <div className="flex flex-wrap gap-2">
- {tickers.map(ticker => <Badge key={ticker} variant="secondary">{ticker}</Badge>)}
- </div>
- );
+    if (tickers.length === 0) return <p className="text-xs text-muted-foreground">No tickers match this category.</p>;
+    return (
+    <div className="flex flex-wrap gap-2">
+    {tickers.map(ticker => <Badge key={ticker} variant="secondary">{ticker}</Badge>)}
+    </div>
+    );
   };
 
  const greenJNSARTickers = filteredAnalysisResults.filter(r => r.isGreenJNSARTrigger).map(r => r.tickerName);
@@ -138,8 +133,7 @@ const WChangePage: FC = () => {
   const strongRedSignalTickers = filteredAnalysisResults.filter(r => r.isStrongRedSignal).map(r => r.tickerName);
 
   const handleDownloadExcel = () => {
-
-    if (isDownloading || analysisResults.length === 0) {
+    if (isDownloading || filteredAnalysisResults.length === 0) {
       toast({ title: "Download Info", description: isDownloading ? "Download already in progress." : "No analysis data to download." });
       return;
     }
@@ -148,44 +142,38 @@ const WChangePage: FC = () => {
 
     try {
       const workbook = XLSX.utils.book_new();
-
-      // Create a sheet for the filtered analysis results with all details
-      const sheetData = filteredAnalysisResults.map(analysis => ({
+      const dataForSheet = filteredAnalysisResults.map(analysis => ({
         'Ticker': analysis.tickerName,
-        'Date': analysis.date,
-        'Average Metric': analysis.averageMetric,
+        'Date of Latest Week': analysis.latestDate, // This date is the start of the week typically
+        'Avg Metric (ATR W)': analysis.averageMetric,
         '5% Threshold': analysis.fivePercentThreshold,
-        'JNSAR (T-1)': analysis.jnsarTminus1,
-        'Close (T-1)': analysis.closeTminus1,
-        'JNSAR (T)': analysis.jnsarT,
-        'Close (T)': analysis.closeT,
-        'Last 5 Day Volumes': analysis.last5DayVolumes.join(', '),
-        'Last 5 Day JNSAR': analysis.last5DayJNSAR.join(', '),
-        'Last 5 Day Close': analysis.last5DayClose.join(', '),
-        'Validation Flag': analysis.l5Validation, // Assuming l5Validation is the validation flag source
+        'JNSAR (W-1)': analysis.jnsarTminus1, // Represents previous week's JNSAR
+        'Close (W-1)': analysis.closeTminus1,   // Represents previous week's Close
+        'JNSAR (W)': analysis.jnsarT,       // Represents current week's JNSAR
+        'Close (W)': analysis.closeT,       // Represents current week's Close
+        'Last 5 Weeks Volumes': analysis.last5DayVolumes.join(', '), // Now represents weekly volumes
+        'Last 5 Weeks JNSAR': analysis.last5DayJNSAR.join(', '),   // Weekly JNSAR
+        'Last 5 Weeks Close': analysis.last5DayClose.join(', '),   // Weekly Close
+        'Validation Flag (L5)': analysis.validationFlag,
         'Green JNSAR Trigger': analysis.isGreenJNSARTrigger ? 'TRUE' : 'FALSE',
         'Red JNSAR Trigger': analysis.isRedJNSARTrigger ? 'TRUE' : 'FALSE',
+        'Current Trend (R5)': analysis.currentTrend ?? 'N/A',
         'Confirmed Green Trend': analysis.isConfirmedGreenTrend ? 'TRUE' : 'FALSE',
         'Strong Green Signal': analysis.isStrongGreenSignal ? 'TRUE' : 'FALSE',
         'Confirmed Red Trend': analysis.isConfirmedRedTrend ? 'TRUE' : 'FALSE',
         'Strong Red Signal': analysis.isStrongRedSignal ? 'TRUE' : 'FALSE',
-        // Add other relevant fields from WChangeAnalysisOutput if needed
-        // For example, if you want daily data points used for analysis:
-        // 'Daily Data (JSON)': JSON.stringify(analysis.dailyData), // Convert array/object to string
-        // This might be too much data, consider adding specific daily metrics if crucial
-        // e.g., 'Day T Close': analysis.dailyData[analysis.dailyData.length - 1]?.Close,
-        // 'Day T JNSAR': analysis.dailyData[analysis.dailyData.length - 1]?.JNSAR,
-        // 'Day T-1 Close': analysis.dailyData[analysis.dailyData.length - 2]?.Close,
       }));
 
-      if (sheetData.length === 0) {
+      if (dataForSheet.length === 0) {
         toast({ variant: "destructive", title: "Download Error", description: "No categorized tickers to export." });
         setIsDownloading(false);
         return;
       }
-
-      XLSX.writeFile(workbook, `WChange_Analysis_Report.xlsx`);
-      toast({ title: "Download Complete", description: `W.Change analysis report downloaded.` });
+      
+      const worksheet = XLSX.utils.json_to_sheet(dataForSheet);
+      XLSX.utils.book_append_sheet(workbook, worksheet, "WChange_Analysis");
+      XLSX.writeFile(workbook, `WChange_Weekly_Analysis_Report.xlsx`);
+      toast({ title: "Download Complete", description: `W.Change weekly analysis report downloaded.` });
 
     }
     catch (e: any) {
@@ -201,58 +189,52 @@ const WChangePage: FC = () => {
       <Card className="mb-6 shadow-lg border border-border rounded-lg">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <div>
-            <CardTitle className="text-xl font-semibold text-foreground">W.Change Analysis</CardTitle>
-            <CardDescription>Analysis of stock data based on weekly change parameters.</CardDescription>
+            <CardTitle className="text-xl font-semibold text-foreground">W.Change Analysis (Weekly)</CardTitle>
+            <CardDescription>Analysis of stock data based on weekly change parameters, as of the week ending on or before selected date.</CardDescription>
              {loading && <CardDescription>Processed {processedCount} of {ALL_POSSIBLE_STOCKS.length} stocks...</CardDescription>}
           </div>
-          {/* Date Picker and Download */}
           <div className="flex items-center space-x-4">
- {/* Time Range Dropdown Placeholder */}
              <Select value={selectedRange} onValueChange={setSelectedRange}>
                 <SelectTrigger className="w-[180px]">
-                   {selectedRange}
+                   <SelectValue placeholder="Select Range" />
                 </SelectTrigger>
                 <SelectContent>
-                   <SelectItem value="Current Week">Current Week</SelectItem>
-                   <SelectItem value="Previous Week">Previous Week</SelectItem>
-                   <SelectItem value="Last Month">Last Month</SelectItem>
-                   <SelectItem value="Last 3 Months">Last 3 Months</SelectItem>
-                   <SelectItem value="Last 6 Months">Last 6 Months</SelectItem>
-                   <SelectItem value="Last 9 Months">Last 9 Months</SelectItem>
+                   <SelectItem value="Current Week">Latest Week</SelectItem>
+                   {/* Add other range options later if needed */}
                 </SelectContent>
              </Select>
               <Popover>
                 <PopoverTrigger asChild>
                 <Button variant={"outline"} className={`w-[180px] justify-start text-left font-normal ${!selectedDate && "text-muted-foreground"}`}>
                     <CalendarIcon className="mr-2 h-4 w-4" />
-                    {selectedDate ? selectedDate.toDateString() : "Pick a date"}
+                    {selectedDate ? format(selectedDate, "PPP") : "Pick 'as of' date"}
                 </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0"><Calendar mode="single" selected={selectedDate} onSelect={setSelectedDate as DateSelectEventHandler} initialFocus /></PopoverContent>
             </Popover>
+            <Button onClick={handleDownloadExcel} disabled={isDownloading || loading || filteredAnalysisResults.length === 0} className="h-9 text-sm">
+                <Download className="mr-2 h-4 w-4" />
+                {isDownloading ? 'Downloading...' : 'Download Analysis'}
+            </Button>
           </div>
-          <Button onClick={handleDownloadExcel} disabled={isDownloading || loading || analysisResults.length === 0} className="h-9 text-sm">
-            <Download className="mr-2 h-4 w-4" />
-            {isDownloading ? 'Downloading...' : 'Download Analysis'}
-          </Button>
         </CardHeader>
       </Card>
 
       <Accordion type="single" collapsible className="w-full mb-6 shadow border border-border rounded-lg p-4 bg-card">
         <AccordionItem value="item-1" className="border-b-0">
-          <AccordionTrigger className="text-md font-medium hover:no-underline">Key Calculations Breakdown (T = Today, T-1 = Yesterday)</AccordionTrigger>
+          <AccordionTrigger className="text-md font-medium hover:no-underline">Key Calculations Breakdown (W = Current Week, W-1 = Previous Week)</AccordionTrigger>
           <AccordionContent>
             <div className="space-y-2 text-sm pt-2 text-card-foreground">
-              <p><strong>Average Metric:</strong> Calculated as the latest Average True Range (ATR) value for day T.</p>
+              <p><strong>Average Metric:</strong> Calculated as the latest Average True Range (ATR) value for week W.</p>
               <p><strong>5% Threshold:</strong> Calculated as <code>Average Metric * 0.05</code> (Note: This threshold is calculated but not directly used in current public triggers).</p>
-              <p><strong>Data Points Used:</strong> The analysis primarily uses JNSAR and Closing prices for the current day (T) and the previous day (T-1).</p>
-              <p><strong>Green JNSAR Trigger:</strong> A stock triggers this if: <code>JNSAR[T-1] &gt; Close[T-1]</code> AND <code>JNSAR[T] &lt; Close[T]</code>. The ticker name is shown if triggered.</p>
-              <p><strong>Red JNSAR Trigger:</strong> A stock triggers this if: <code>JNSAR[T-1] &lt; Close[T-1]</code> AND <code>JNSAR[T] &gt; Close[T]</code>. The ticker name is shown if triggered.</p>
+              <p><strong>Data Points Used:</strong> The analysis primarily uses JNSAR and Closing prices for the current week (W) and the previous week (W-1).</p>
+              <p><strong>Green JNSAR Trigger:</strong> A stock triggers this if: <code>JNSAR[W-1] &gt; Close[W-1]</code> AND <code>JNSAR[W] &lt; Close[W]</code>. The ticker name is shown if triggered.</p>
+              <p><strong>Red JNSAR Trigger:</strong> A stock triggers this if: <code>JNSAR[W-1] &lt; Close[W-1]</code> AND <code>JNSAR[W] &gt; Close[W]</code>. The ticker name is shown if triggered.</p>
               <p><strong>Current Trend (R/D):</strong> Based on an external data point or rule (e.g., 'R5' from a sheet). Currently, this defaults to a neutral state if not provided, meaning 'Confirmed Trend' signals might not activate unless this input is integrated.</p>
               <p><strong>Validation Flag:</strong> Based on an external data point or rule (e.g., 'L5' from a sheet). Currently, this defaults to false if not provided, meaning 'Strong Signal' categorizations might not activate unless this input is integrated.</p>
-              <p><strong>Confirmed Green Trend:</strong> Triggered if a stock has a "Green JNSAR Trigger" AND its "Current Trend" is 'R' (Rising).</p>
+              <p><strong>Confirmed Green Trend:</strong> Triggered if a stock has a "Green JNSAR Trigger" (Weekly) AND its "Current Trend" is 'R' (Rising).</p>
               <p><strong>Strong Green Signal:</strong> Triggered if a stock has a "Confirmed Green Trend" AND its "Validation Flag" is true.</p>
-              <p><strong>Confirmed Red Trend:</strong> Triggered if a stock has a "Red JNSAR Trigger" AND its "Current Trend" is 'D' (Declining).</p>
+              <p><strong>Confirmed Red Trend:</strong> Triggered if a stock has a "Red JNSAR Trigger" (Weekly) AND its "Current Trend" is 'D' (Declining).</p>
               <p><strong>Strong Red Signal:</strong> Triggered if a stock has a "Confirmed Red Trend" AND its "Validation Flag" is true.</p>
             </div>
           </AccordionContent>
@@ -283,12 +265,12 @@ const WChangePage: FC = () => {
         </Alert>
       )}
 
-      {!loading && !error && (analysisResults.length > 0 || ALL_POSSIBLE_STOCKS.length > 0) && (
+      {!loading && !error && (filteredAnalysisResults.length > 0 || ALL_POSSIBLE_STOCKS.length > 0) && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <Card className="shadow-md border border-border rounded-lg">
             <CardHeader className="pb-3">
               <CardTitle className="text-md font-medium flex items-center">
-                <CheckCircle className="mr-2 h-5 w-5 text-green-500" />Green JNSAR Triggers
+                <CheckCircle className="mr-2 h-5 w-5 text-green-500" />Green JNSAR Triggers (Weekly)
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -299,7 +281,7 @@ const WChangePage: FC = () => {
           <Card className="shadow-md border border-border rounded-lg">
             <CardHeader className="pb-3">
               <CardTitle className="text-md font-medium flex items-center">
-                <XCircle className="mr-2 h-5 w-5 text-red-500" />Red JNSAR Triggers
+                <XCircle className="mr-2 h-5 w-5 text-red-500" />Red JNSAR Triggers (Weekly)
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -310,7 +292,7 @@ const WChangePage: FC = () => {
           <Card className="shadow-md border border-border rounded-lg">
             <CardHeader className="pb-3">
               <CardTitle className="text-md font-medium flex items-center">
-                <TrendingUp className="mr-2 h-5 w-5 text-green-600" />Confirmed Green Trend
+                <TrendingUp className="mr-2 h-5 w-5 text-green-600" />Confirmed Green Trend (Weekly)
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -322,7 +304,7 @@ const WChangePage: FC = () => {
           <Card className="shadow-md border border-border rounded-lg">
             <CardHeader className="pb-3">
               <CardTitle className="text-md font-medium flex items-center">
-                <TrendingDown className="mr-2 h-5 w-5 text-red-600" />Confirmed Red Trend
+                <TrendingDown className="mr-2 h-5 w-5 text-red-600" />Confirmed Red Trend (Weekly)
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -334,7 +316,7 @@ const WChangePage: FC = () => {
           <Card className="shadow-md border border-border rounded-lg">
             <CardHeader className="pb-3">
               <CardTitle className="text-md font-medium flex items-center">
-                <ShieldCheck className="mr-2 h-5 w-5 text-green-700" />Strong Green Signals
+                <ShieldCheck className="mr-2 h-5 w-5 text-green-700" />Strong Green Signals (Weekly)
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -346,7 +328,7 @@ const WChangePage: FC = () => {
           <Card className="shadow-md border border-border rounded-lg">
             <CardHeader className="pb-3">
               <CardTitle className="text-md font-medium flex items-center">
-                 <ShieldCheck className="mr-2 h-5 w-5 text-red-700" />Strong Red Signals
+                 <ShieldCheck className="mr-2 h-5 w-5 text-red-700" />Strong Red Signals (Weekly)
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -356,11 +338,11 @@ const WChangePage: FC = () => {
           </Card>
         </div>
       )}
-      {!loading && !error && analysisResults.length === 0 && ALL_POSSIBLE_STOCKS.length > 0 && (
+      {!loading && !error && filteredAnalysisResults.length === 0 && ALL_POSSIBLE_STOCKS.length > 0 && (
          <Alert>
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>No Specific Signals</AlertTitle>
-          <AlertDescription>The analysis completed, but no stocks triggered the specific W.Change signal criteria. This could be due to current market conditions or data patterns.</AlertDescription>
+          <AlertTitle>No Specific Weekly Signals</AlertTitle>
+          <AlertDescription>The analysis completed, but no stocks triggered the specific weekly W.Change signal criteria for the latest week based on the selected 'as of' date. This could be due to market conditions or data patterns.</AlertDescription>
         </Alert>
       )}
     </main>
@@ -368,5 +350,4 @@ const WChangePage: FC = () => {
 };
 
 export default WChangePage;
-
     
