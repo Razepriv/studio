@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { format } from 'date-fns';
 import { getStockData, type StockData } from '@/services/stock-data';
@@ -109,7 +109,7 @@ const WChangePage: FC = () => {
       setLoading(false);
     };
     fetchAndAnalyzeData();
-  }, [selectedDate, toast]); // Removed ALL_POSSIBLE_STOCKS from deps as it's constant
+  }, [selectedDate, toast]);
 
   // Display all analysis results; selectedDate influences the "as of" date for latest week.
   useEffect(() => {
