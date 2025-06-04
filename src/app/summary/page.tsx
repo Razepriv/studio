@@ -481,7 +481,7 @@ export default function SummaryPage() {
                       </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="max-w-xs">
-                      <p>Total number of unique stocks for which trend movement data was successfully processed for the selected period.</p>
+                      <p>Total number of unique stocks for which trend movement data was successfully processed for the selected period. This is the count of items in the `allStockTrendMovement` array.</p>
                     </TooltipContent>
                   </Tooltip>
                 </CardHeader><CardContent>{overviewData?.totalStocksTracked ?? '-'}</CardContent>
@@ -495,7 +495,7 @@ export default function SummaryPage() {
                       </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="max-w-xs">
-                      <p>Number of stocks that newly entered any 'Long' signal (e.g., 'Long JN~ & R', 'Long Confirmed') during the selected period, having no signal or a different signal previously.</p>
+                      <p>Counts stocks where the 'Change' field (in `allStockTrendMovement`) starts with 'Entry' AND the 'Current Signal' includes 'Long'. This signifies a new entry into any long-type signal on the last day of the selected period.</p>
                     </TooltipContent>
                   </Tooltip>
                 </CardHeader><CardContent>{overviewData?.newLongEntries ?? '-'}</CardContent>
@@ -509,7 +509,7 @@ export default function SummaryPage() {
                       </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="max-w-xs">
-                      <p>Number of stocks that newly entered any 'Short' signal (e.g., 'Short JN~ & D', 'Short Confirmed') during the selected period, having no signal or a different signal previously.</p>
+                      <p>Counts stocks where the 'Change' field (in `allStockTrendMovement`) starts with 'Entry' AND the 'Current Signal' includes 'Short'. This signifies a new entry into any short-type signal on the last day of the selected period.</p>
                     </TooltipContent>
                   </Tooltip>
                 </CardHeader><CardContent>{overviewData?.newShortEntries ?? '-'}</CardContent>
@@ -523,7 +523,7 @@ export default function SummaryPage() {
                       </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="max-w-xs">
-                      <p>Stocks ending the period in a 'Red Flip' state. This indicates a JNSAR crossover from below Close to above Close (on the last day of period), suggesting a potential shift to a bearish outlook. This is based on the daily JNSAR calculation for the specified period.</p>
+                      <p>Counts stocks where the 'Current Signal' (from `allStockTrendMovement`, derived from `analyzeForWChange` for the last day) is 'Red Flip'. A 'Red Flip' generally indicates a JNSAR crossover from below Close to above Close (i.e., JNSAR[T-1] &lt; Close[T-1] AND JNSAR[T] &gt; Close[T]), signaling a potential bearish shift.</p>
                     </TooltipContent>
                   </Tooltip>
                 </CardHeader><CardContent>{overviewData?.redFlips ?? '-'}</CardContent>
@@ -537,7 +537,7 @@ export default function SummaryPage() {
                       </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="max-w-xs">
-                      <p>Stocks ending the period in a 'Green Flip' state. This indicates a JNSAR crossover from above Close to below Close (on the last day of period), suggesting a potential shift to a bullish outlook. This is based on the daily JNSAR calculation for the specified period.</p>
+                      <p>Counts stocks where the 'Current Signal' (from `allStockTrendMovement`, derived from `analyzeForWChange` for the last day) is 'Green Flip'. A 'Green Flip' generally indicates a JNSAR crossover from above Close to below Close (i.e., JNSAR[T-1] &gt; Close[T-1] AND JNSAR[T] &lt; Close[T]), signaling a potential bullish shift.</p>
                     </TooltipContent>
                   </Tooltip>
                 </CardHeader><CardContent>{overviewData?.greenFlips ?? '-'}</CardContent>
@@ -551,7 +551,7 @@ export default function SummaryPage() {
                       </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="max-w-xs">
-                      <p>Stocks ending the period in a 'Long Confirmed' state. This typically requires a Green JNSAR trigger and the stock's 'Current Trend' (e.g., R5 from external data, currently placeholder) to be 'R' (Rising).</p>
+                      <p>Counts stocks where the 'Current Signal' (from `allStockTrendMovement`, derived from `analyzeForWChange` for the last day) is 'Long Confirmed'. This state typically requires a 'Green JNSAR Trigger' (JNSAR flips bullishly) AND the stock's 'Current Trend' (R5 from external data, placeholder) to be 'R' (Rising).</p>
                     </TooltipContent>
                   </Tooltip>
                 </CardHeader><CardContent>{overviewData?.confirmedLongs ?? '-'}</CardContent>
@@ -565,7 +565,7 @@ export default function SummaryPage() {
                       </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="max-w-xs">
-                      <p>Stocks ending the period in a 'Short Confirmed' state. This typically requires a Red JNSAR trigger and the stock's 'Current Trend' (e.g., R5 from external data, currently placeholder) to be 'D' (Declining).</p>
+                      <p>Counts stocks where the 'Current Signal' (from `allStockTrendMovement`, derived from `analyzeForWChange` for the last day) is 'Short Confirmed'. This state typically requires a 'Red JNSAR Trigger' (JNSAR flips bearishly) AND the stock's 'Current Trend' (R5 from external data, placeholder) to be 'D' (Declining).</p>
                     </TooltipContent>
                   </Tooltip>
                 </CardHeader><CardContent>{overviewData?.confirmedShorts ?? '-'}</CardContent>
