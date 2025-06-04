@@ -5,12 +5,13 @@ import { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Calendar as CalendarIcon, Download } from 'lucide-react';
+import { Calendar as CalendarIcon, Download, Info } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { format, subDays, isValid, parseISO } from 'date-fns';
 import { getStockData, type StockData } from '@/services/stock-data'; // Assuming you have this service
 import { cn } from '@/lib/utils'; // Assuming you have a utility function for class names
@@ -138,8 +139,8 @@ export default function SummaryPage() {
           if (rawStockData && rawStockData.length > 0) {
             const allDates = rawStockData.map(d => d.date);
             const processed = processStockData(rawStockData, allDates);
-            const stockSector = "Placeholder Sector"; // TODO: Replace with actual sector fetching logic (e.g., from a static mapping or another API)
-            if (stockSector !== "Placeholder Sector") uniqueSectors.add(stockSector);
+            const stockSector = rawStockData[0]?.sector ?? "N/A"; 
+            if (stockSector && stockSector !== "N/A") uniqueSectors.add(stockSector);
             
             // Filter processed data to the selected date range
             const dataForRange = processed.filter(p => {
@@ -169,12 +170,18 @@ export default function SummaryPage() {
                          isGreenJNSARTrigger: false, isRedJNSARTrigger: false,
                          trend: null, jnsarVsClose: null, validation: false,
                          signalType: null, trendSignalSummary: null,
-                         r5Trend: null, l5Validation: false
+                         currentTrend: null, validationFlag: false,
+                         isConfirmedGreenTrend: false, isStrongGreenSignal: false,
+                         isConfirmedRedTrend: false, isStrongRedSignal: false,
+                         latestDate: null, averageMetric: null, fivePercentThreshold: null,
+                         jnsarT: null, jnsarTminus1: null, closeT: null, closeTminus1: null, closeTminus2: null,
+                         last5PeriodsVolumes: [], last5PeriodsJNSAR: [], last5PeriodsClose: [], last5PeriodsOHLC: [],
                      };
                 }).filter(analysis => analysis !== null && analysis.trendSignalSummary !== null) as WChangeAnalysisOutput[]; // Filter out null or no-signal results
 
                  // Calculate days in current signal
                  let daysInCurrentSignal = 0;
+                 const lastDayAnalysis = analysisForRange[analysisForRange.length - 1];
                  if (lastDayAnalysis?.trendSignalSummary) {
                     daysInCurrentSignal = 1;
                     for (let i = analysisForRange.length - 2; i >= 0; i--) {
@@ -191,7 +198,6 @@ export default function SummaryPage() {
                 allAnalysisResults.push(...analysisForRange);
 
                 // Determine the current and previous signal within the range
-                const lastDayAnalysis = analysisForRange[analysisForRange.length - 1];
                 const secondLastDayAnalysis = analysisForRange[analysisForRange.length - 2] || null;
 
                  let change = '';
@@ -201,9 +207,14 @@ export default function SummaryPage() {
                      changeType = 'Entry';
                  } else if (!lastDayAnalysis?.trendSignalSummary && secondLastDayAnalysis?.trendSignalSummary) {
                      change = `Exit (${secondLastDayAnalysis.trendSignalSummary})`; // Keep the previous signal in exit change description
+                     changeType = 'Exit';
                  } else if (lastDayAnalysis?.trendSignalSummary && secondLastDayAnalysis?.trendSignalSummary && lastDayAnalysis.trendSignalSummary !== secondLastDayAnalysis.trendSignalSummary) {
                      change = `${secondLastDayAnalysis.trendSignalSummary} -> ${lastDayAnalysis.trendSignalSummary}`;
+                     changeType = 'Change';
+                 } else {
+                     changeType = 'No Change';
                  }
+
 
                  // Count current signals for overview and summary table
                  if(lastDayAnalysis?.trendSignalSummary) {
@@ -216,10 +227,10 @@ export default function SummaryPage() {
                   currentSignal: lastDayAnalysis?.trendSignalSummary ?? null,
                   previousSignal: secondLastDayAnalysis?.trendSignalSummary ?? null,
                   change: change,
- daysInCurrentSignal: daysInCurrentSignal > 0 ? daysInCurrentSignal : null,
+                  daysInCurrentSignal: daysInCurrentSignal > 0 ? daysInCurrentSignal : null,
                   validation: lastDayAnalysis?.validation ?? null,
                   changeType: changeType,
- sector: stockSector, // Add sector to the data
+                  sector: stockSector, // Add sector to the data
                   notes: '', // Placeholder
                 });
             }
@@ -282,7 +293,7 @@ export default function SummaryPage() {
         "Days in Current Signal": row.daysInCurrentSignal !== null ? row.daysInCurrentSignal : '-',
         "Validation (L5)": row.validation === true ? 'Yes' : row.validation === false ? 'No' : '-',
         "Notes": row.notes ?? '-',
- "Sector": row.sector ?? '-', // Include sector in export
+        "Sector": row.sector ?? '-', // Include sector in export
         "Change Type": row.changeType ?? '-', // Include change type in export
       }));
 
@@ -336,247 +347,328 @@ export default function SummaryPage() {
 
 
   return (
-    <main className="container mx-auto py-8">
-      <Card className="shadow-lg border border-border rounded-lg">
-        <CardHeader className="border-b border-border pb-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div>
-              <CardTitle className="text-xl font-semibold text-foreground">Market Summary</CardTitle>
-              <CardDescription>High-level snapshot of market signal trends for the selected period ({format(dateRange.startDate, 'PPP')} to {format(dateRange.endDate, 'PPP')}).</CardDescription>
-            </div>
-            <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
-              {/* Date Range Selector */}
-              <Select value={selectedDateRange} onValueChange={setSelectedDateRange}>
-                <SelectTrigger className="w-[180px] h-9 text-sm">
-                  <SelectValue placeholder="Select range" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Week">Week</SelectItem>
-                  <SelectItem value="Month">Month</SelectItem>
-                  <SelectItem value="3M">Last 3 Months</SelectItem>
-                  <SelectItem value="6M">Last 6 Months</SelectItem>
-                  <SelectItem value="9M">Last 9 Months</SelectItem>
-                  {/* Add custom date range option later */}
-                </SelectContent>
-              </Select>
+    <TooltipProvider>
+      <main className="container mx-auto py-8">
+        <Card className="shadow-lg border border-border rounded-lg">
+          <CardHeader className="border-b border-border pb-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <CardTitle className="text-xl font-semibold text-foreground">Market Summary</CardTitle>
+                <CardDescription>High-level snapshot of market signal trends for the selected period ({format(dateRange.startDate, 'PPP')} to {format(dateRange.endDate, 'PPP')}).</CardDescription>
+              </div>
+              <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+                {/* Date Range Selector */}
+                <Select value={selectedDateRange} onValueChange={setSelectedDateRange}>
+                  <SelectTrigger className="w-[180px] h-9 text-sm">
+                    <SelectValue placeholder="Select range" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Week">Week</SelectItem>
+                    <SelectItem value="Month">Month</SelectItem>
+                    <SelectItem value="3M">Last 3 Months</SelectItem>
+                    <SelectItem value="6M">Last 6 Months</SelectItem>
+                    <SelectItem value="9M">Last 9 Months</SelectItem>
+                    {/* Add custom date range option later */}
+                  </SelectContent>
+                </Select>
 
-              {/* Custom Date Picker (Optional, for specific date ranges) */}
-              {/* <Popover>
-                <PopoverTrigger asChild >
-                  <Button
-                    variant={"outline"}
-                    className={cn(
-                      "w-full sm:w-[180px] justify-start text-left font-normal h-9 text-sm",
-                      !customDate && "text-muted-foreground"
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {customDate ? format(customDate, "PPP") : <span>Pick a date</span>}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0">
-                  <Calendar
-                    mode="single"
-                    selected={customDate}
-                    onSelect={setCustomDate}
-                    initialFocus
-                  />
-                </PopoverContent>
-              </Popover> */}
+                {/* Custom Date Picker (Optional, for specific date ranges) */}
+                {/* <Popover>
+                  <PopoverTrigger asChild >
+                    <Button
+                      variant={"outline"}
+                      className={cn(
+                        "w-full sm:w-[180px] justify-start text-left font-normal h-9 text-sm",
+                        !customDate && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {customDate ? format(customDate, "PPP") : <span>Pick a date</span>}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <Calendar
+                      mode="single"
+                      selected={customDate}
+                      onSelect={setCustomDate}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover> */}
 
-              {/* Filter Options */}
-              <div className="flex flex-wrap items-center gap-4">
-                {/* Trend Category Filter */}
-                <div className="flex items-center gap-2 text-sm">
-                  <label className="text-muted-foreground">Category:</label>
-                  <Select value={selectedTrendCategoryFilter} onValueChange={(value: TrendCategoryFilter) => setSelectedTrendCategoryFilter(value)}>
-                    <SelectTrigger className="w-[180px] h-8 text-xs">
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="All">All Categories</SelectItem>
-                      <SelectItem value="Long JN~ & R">Long JN~ & R</SelectItem>
-                      <SelectItem value="Long JN~, R & Vol">Long JN~, R & Vol</SelectItem>
-                      <SelectItem value="Short JN~ & D">Short JN~ & D</SelectItem>
-                      <SelectItem value="Short JN, D & Vol">Short JN, D & Vol</SelectItem>
-                      <SelectItem value="Red Flips">Red Flips</SelectItem>
-                      <SelectItem value="Green Flips">Green Flips</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                 {/* Confirmation Filter */}
-                <div className="flex items-center gap-2 text-sm">
-                  <label className="text-muted-foreground">Confirmation:</label>
-                  <Select value={selectedConfirmationFilter} onValueChange={(value: ConfirmationFilter) => setSelectedConfirmationFilter(value)}>
-                    <SelectTrigger className="w-[150px] h-8 text-xs">
-                      <SelectValue placeholder="Select confirmation" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="All">All</SelectItem>
-                      <SelectItem value="Confirmed">Confirmed</SelectItem>
-                      <SelectItem value="Unconfirmed">Unconfirmed</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                 {/* Flips Only Filter */}
-                 <div className="flex items-center gap-2 text-sm">
-                   <label className="text-muted-foreground">Flips:</label>
-                   <Select value={selectedFlipFilter} onValueChange={(value: FlipFilter) => setSelectedFlipFilter(value)}>
-                     <SelectTrigger className="w-[120px] h-8 text-xs">
-                       <SelectValue placeholder="Select flip type" />
-                     </SelectTrigger>
-                     <SelectContent>
-                       <SelectItem value="All">All</SelectItem>
-                       <SelectItem value="Flips Only">Flips Only</SelectItem>
-                     </SelectContent>
-                   </Select>
+                {/* Filter Options */}
+                <div className="flex flex-wrap items-center gap-4">
+                  {/* Trend Category Filter */}
+                  <div className="flex items-center gap-2 text-sm">
+                    <label className="text-muted-foreground">Category:</label>
+                    <Select value={selectedTrendCategoryFilter} onValueChange={(value: TrendCategoryFilter) => setSelectedTrendCategoryFilter(value)}>
+                      <SelectTrigger className="w-[180px] h-8 text-xs">
+                        <SelectValue placeholder="Select category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="All">All Categories</SelectItem>
+                        <SelectItem value="Long JN~ & R">Long JN~ & R</SelectItem>
+                        <SelectItem value="Long JN~, R & Vol">Long JN~, R & Vol</SelectItem>
+                        <SelectItem value="Short JN~ & D">Short JN~ & D</SelectItem>
+                        <SelectItem value="Short JN, D & Vol">Short JN, D & Vol</SelectItem>
+                        <SelectItem value="Red Flips">Red Flips</SelectItem>
+                        <SelectItem value="Green Flips">Green Flips</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
 
-                {/* Sector Filter */}
-                 <div className="flex items-center gap-2 text-sm">
-                   <label className="text-muted-foreground">Sector:</label>
-                   {/* For simplicity, using single select for now. Can be extended to multi-select later. */}
-                    <Select onValueChange={(value) => setSelectedSectors(value === 'All' ? ['All'] : [value])} value={selectedSectors.includes('All') ? 'All' : selectedSectors[0] || 'All'}>
-                       <SelectTrigger className="w-[180px] h-8 text-xs">
-                           <SelectValue placeholder="Select Sector" />
-                       </SelectTrigger>
-                       <SelectContent>
-                           {/* Ensure 'All' is always the first option */}
-                           {availableSectors.map(sector => <SelectItem key={sector} value={sector}>{sector}</SelectItem>)}
-                       </SelectContent>
-                   </Select>
-                 </div>
+                  {/* Confirmation Filter */}
+                  <div className="flex items-center gap-2 text-sm">
+                    <label className="text-muted-foreground">Confirmation:</label>
+                    <Select value={selectedConfirmationFilter} onValueChange={(value: ConfirmationFilter) => setSelectedConfirmationFilter(value)}>
+                      <SelectTrigger className="w-[150px] h-8 text-xs">
+                        <SelectValue placeholder="Select confirmation" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="All">All</SelectItem>
+                        <SelectItem value="Confirmed">Confirmed</SelectItem>
+                        <SelectItem value="Unconfirmed">Unconfirmed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Flips Only Filter */}
+                  <div className="flex items-center gap-2 text-sm">
+                    <label className="text-muted-foreground">Flips:</label>
+                    <Select value={selectedFlipFilter} onValueChange={(value: FlipFilter) => setSelectedFlipFilter(value)}>
+                      <SelectTrigger className="w-[120px] h-8 text-xs">
+                        <SelectValue placeholder="Select flip type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="All">All</SelectItem>
+                        <SelectItem value="Flips Only">Flips Only</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Sector Filter */}
+                  <div className="flex items-center gap-2 text-sm">
+                    <label className="text-muted-foreground">Sector:</label>
+                    {/* For simplicity, using single select for now. Can be extended to multi-select later. */}
+                      <Select onValueChange={(value) => setSelectedSectors(value === 'All' ? ['All'] : [value])} value={selectedSectors.includes('All') ? 'All' : selectedSectors[0] || 'All'}>
+                        <SelectTrigger className="w-[180px] h-8 text-xs">
+                            <SelectValue placeholder="Select Sector" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {/* Ensure 'All' is always the first option */}
+                            {availableSectors.map(sector => <SelectItem key={sector} value={sector}>{sector}</SelectItem>)}
+                        </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                {/* Download Button */}
+                <Button onClick={handleDownloadExcel} disabled={loading || isDownloading || filteredStockTrendMovementData.length === 0} className="h-9 text-sm w-full sm:w-auto">
+                  <Download className="mr-2 h-4 w-4" />
+                  Download Summary
+                </Button>
               </div>
-              {/* Download Button */}
-              <Button onClick={handleDownloadExcel} disabled={loading || isDownloading || filteredStockTrendMovementData.length === 0} className="h-9 text-sm w-full sm:w-auto">
-                <Download className="mr-2 h-4 w-4" />
-                Download Summary
-              </Button>
             </div>
-          </div>
-        </CardHeader>
-        <CardContent className="p-4">
-          {/* Overview Cards Section */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            {/* Placeholder Cards - Will be mapped from overviewData */}
-            <Card><CardHeader><CardTitle className="text-md">Total Stocks</CardTitle></CardHeader><CardContent>{overviewData?.totalStocksTracked ?? '-'}</CardContent></Card>
-            <Card><CardHeader><CardTitle className="text-md">New Long Entries (Week)</CardTitle></CardHeader><CardContent>{overviewData?.newLongEntries ?? '-'}</CardContent></Card>
-            <Card><CardHeader><CardTitle className="text-md">New Short Entries (Week)</CardTitle></CardHeader><CardContent>{overviewData?.newShortEntries ?? '-'}</CardContent></Card>
-            <Card><CardHeader><CardTitle className="text-md">Red Flips (Week)</CardTitle></CardHeader><CardContent>{overviewData?.redFlips ?? '-'}</CardContent></Card>
-            <Card><CardHeader><CardTitle className="text-md">Green Flips (Week)</CardTitle></CardHeader><CardContent>{overviewData?.greenFlips ?? '-'}</CardContent></Card>
-            <Card><CardHeader><CardTitle className="text-md">Confirmed Longs</CardTitle></CardHeader><CardContent>{overviewData?.confirmedLongs ?? '-'}</CardContent></Card>
-            <Card><CardHeader><CardTitle className="text-md">Confirmed Shorts</CardTitle></CardHeader><CardContent>{overviewData?.confirmedShorts ?? '-'}</CardContent></Card>
-          </div>
+          </CardHeader>
+          <CardContent className="p-4">
+            {/* Overview Cards Section */}
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
+              <Card>
+                <CardHeader>
+                  <Tooltip>
+                    <TooltipTrigger className="flex items-center gap-1 cursor-default">
+                      <CardTitle className="text-md">Total Stocks Tracked</CardTitle><Info size={14} className="text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-xs">
+                      <p>Total number of unique stocks for which trend movement data was successfully processed for the selected period.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </CardHeader><CardContent>{overviewData?.totalStocksTracked ?? '-'}</CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <Tooltip>
+                    <TooltipTrigger className="flex items-center gap-1 cursor-default">
+                      <CardTitle className="text-md">New Long Entries</CardTitle><Info size={14} className="text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-xs">
+                      <p>Number of stocks that newly entered any 'Long' signal (e.g., 'Long JN~ & R', 'Long Confirmed') during the selected period, having no signal or a different signal previously.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </CardHeader><CardContent>{overviewData?.newLongEntries ?? '-'}</CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <Tooltip>
+                    <TooltipTrigger className="flex items-center gap-1 cursor-default">
+                      <CardTitle className="text-md">New Short Entries</CardTitle><Info size={14} className="text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-xs">
+                      <p>Number of stocks that newly entered any 'Short' signal (e.g., 'Short JN~ & D', 'Short Confirmed') during the selected period, having no signal or a different signal previously.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </CardHeader><CardContent>{overviewData?.newShortEntries ?? '-'}</CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <Tooltip>
+                    <TooltipTrigger className="flex items-center gap-1 cursor-default">
+                      <CardTitle className="text-md">Red Flips</CardTitle><Info size={14} className="text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-xs">
+                      <p>Stocks ending the period in a 'Red Flip' state. This indicates a JNSAR crossover from below Close to above Close (on the last day of period), suggesting a potential shift to a bearish outlook. This is based on the daily JNSAR calculation for the specified period.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </CardHeader><CardContent>{overviewData?.redFlips ?? '-'}</CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <Tooltip>
+                    <TooltipTrigger className="flex items-center gap-1 cursor-default">
+                      <CardTitle className="text-md">Green Flips</CardTitle><Info size={14} className="text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-xs">
+                      <p>Stocks ending the period in a 'Green Flip' state. This indicates a JNSAR crossover from above Close to below Close (on the last day of period), suggesting a potential shift to a bullish outlook. This is based on the daily JNSAR calculation for the specified period.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </CardHeader><CardContent>{overviewData?.greenFlips ?? '-'}</CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <Tooltip>
+                    <TooltipTrigger className="flex items-center gap-1 cursor-default">
+                      <CardTitle className="text-md">Confirmed Longs</CardTitle><Info size={14} className="text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-xs">
+                      <p>Stocks ending the period in a 'Long Confirmed' state. This typically requires a Green JNSAR trigger and the stock's 'Current Trend' (e.g., R5 from external data, currently placeholder) to be 'R' (Rising).</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </CardHeader><CardContent>{overviewData?.confirmedLongs ?? '-'}</CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <Tooltip>
+                    <TooltipTrigger className="flex items-center gap-1 cursor-default">
+                      <CardTitle className="text-md">Confirmed Shorts</CardTitle><Info size={14} className="text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-xs">
+                      <p>Stocks ending the period in a 'Short Confirmed' state. This typically requires a Red JNSAR trigger and the stock's 'Current Trend' (e.g., R5 from external data, currently placeholder) to be 'D' (Declining).</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </CardHeader><CardContent>{overviewData?.confirmedShorts ?? '-'}</CardContent>
+              </Card>
+            </div>
 
-          {/* Trend Summary Table */}
-          <h3 className="text-lg font-semibold mb-4">Trend Summary ({selectedDateRange})</h3>
-          <Table>
-            <TableCaption>Summary of stock counts by trend category for the selected period.</TableCaption>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Category</TableHead>
-                <TableHead>Count</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                 <TableRow><TableCell colSpan={2} className="text-center">Loading...</TableCell></TableRow>
-              ) : trendSummaryData.length > 0 ? (
-                trendSummaryData.map((row) => (
-                  <TableRow key={row.category}>
-                    <TableCell>{row.category}</TableCell>
-                    <TableCell>{row.count}</TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                 <TableRow><TableCell colSpan={2} className="text-center">No trend summary data available.</TableCell></TableRow>
-              )}
-               {/* Placeholder Rows */}
-               {!loading && trendSummaryData.length === 0 && (
-                <>
-                  <TableRow><TableCell>Long JN~ & R</TableCell><TableCell>-</TableCell></TableRow>
-                  <TableRow><TableCell>Long JN~, R & Vol</TableCell><TableCell>-</TableCell></TableRow>
-                  <TableRow><TableCell>Short JN~ & D</TableCell><TableCell>-</TableCell></TableRow>
-                  <TableRow><TableCell>Short JN, D & Vol</TableCell><TableCell>-</TableCell></TableRow>
-                  <TableRow><TableCell>Red Flips</TableCell><TableCell>-</TableCell></TableRow>
-                  <TableRow><TableCell>Green Flips</TableCell><TableCell>-</TableCell></TableRow>
-                </>
-              )}
-            </TableBody>
-          </Table>
-
-          {/* Stock Trend Movement Summary Table */}
-          <h3 className="text-lg font-semibold my-4">Stock Trend Movement ({selectedDateRange})</h3>
-          <Table>
-            <TableCaption>Detailed view of individual stock trend changes.</TableCaption>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Stock Name</TableHead>
-                <TableHead>Current Signal</TableHead>
- <TableHead>Sector</TableHead>
-                <TableHead>Previous Signal</TableHead>
-                <TableHead>Change</TableHead>
-                <TableHead>Days in Current Signal</TableHead>
-                <TableHead>Validation (L5)</TableHead>
-                <TableHead>Notes</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-             {loading ? (
-                 <TableRow><TableCell colSpan={8} className="text-center">Loading...</TableCell></TableRow>
-              ) : stockTrendMovementData.length > 0 ? (
-                filteredStockTrendMovementData.map((row) => ( // Use filtered data
-                  <TableRow key={row.stockName}>
-                    <TableCell>{row.stockName}</TableCell>
-                    <TableCell>
-                      {row.currentSignal ? (
-                        <span className={cn(
-                          'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
-                          {'bg-green-100 text-green-800': row.currentSignal.includes('Long Confirmed')},
-                          {'bg-red-100 text-red-800': row.currentSignal.includes('Short Confirmed')},
-                          {'bg-yellow-100 text-yellow-800': row.currentSignal.includes('Flip')},
-                          {'bg-gray-100 text-gray-800': !row.currentSignal.includes('Long Confirmed') && !row.currentSignal.includes('Short Confirmed') && !row.currentSignal.includes('Flip')}
-                        )}>
-                          {row.currentSignal}
-                        </span>
-                      ) : '-'}
-                    </TableCell>
- <TableCell>{row.sector ?? '-'}</TableCell> {/* Display sector */}
-                    <TableCell>{row.previousSignal ?? '-'}</TableCell>
-                    <TableCell className="flex items-center">
-                       {row.changeType === 'Entry' && (row.currentSignal?.includes('Long') ? '⬆️ ' : '⬇️ ')}
-                       {row.changeType === 'Change' && (row.currentSignal?.includes('Long') ? '↗️ ' : (row.currentSignal?.includes('Short') ? '↘️ ' : ''))}
-                       {row.changeType === 'Exit' && '↔️ '} {/* Neutral icon for exit */}
-                       {row.change ?? '-'}
-                    </TableCell>
-                    <TableCell>
-                        {row.daysInCurrentSignal !== null ? (
-                            <span className={cn(
-                                {'font-semibold text-green-600': row.daysInCurrentSignal > 5 && row.currentSignal?.includes('Long')},
-                                {'font-semibold text-red-600': row.daysInCurrentSignal > 5 && row.currentSignal?.includes('Short')}
-                            )}>
-                                {row.daysInCurrentSignal}
-                            </span>
-                        ) : '-'}
-                    </TableCell>
-                    <TableCell>{row.validation === true ? 'Yes' : row.validation === false ? 'No' : '-'}</TableCell>
-                    <TableCell>{row.notes ?? '-'}</TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                 <TableRow><TableCell colSpan={8} className="text-center">No stock trend movement data available or matching filters.</TableCell></TableRow>
-              )}
-               {/* Placeholder Row */}
-                {!loading && stockTrendMovementData.length === 0 && (
-                  <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground">No data matching the selected filters.</TableCell></TableRow>
+            {/* Trend Summary Table */}
+            <h3 className="text-lg font-semibold mb-4">Trend Summary ({selectedDateRange})</h3>
+            <Table>
+              <TableCaption>Summary of stock counts by trend category for the selected period.</TableCaption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Count</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow><TableCell colSpan={2} className="text-center">Loading...</TableCell></TableRow>
+                ) : trendSummaryData.length > 0 ? (
+                  trendSummaryData.map((row) => (
+                    <TableRow key={row.category}>
+                      <TableCell>{row.category}</TableCell>
+                      <TableCell>{row.count}</TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow><TableCell colSpan={2} className="text-center">No trend summary data available.</TableCell></TableRow>
                 )}
-            </TableBody>
-          </Table>
+                {/* Placeholder Rows */}
+                {!loading && trendSummaryData.length === 0 && (
+                  <>
+                    <TableRow><TableCell>Long JN~ & R</TableCell><TableCell>-</TableCell></TableRow>
+                    <TableRow><TableCell>Long JN~, R & Vol</TableCell><TableCell>-</TableCell></TableRow>
+                    <TableRow><TableCell>Short JN~ & D</TableCell><TableCell>-</TableCell></TableRow>
+                    <TableRow><TableCell>Short JN, D & Vol</TableCell><TableCell>-</TableCell></TableRow>
+                    <TableRow><TableCell>Red Flips</TableCell><TableCell>-</TableCell></TableRow>
+                    <TableRow><TableCell>Green Flips</TableCell><TableCell>-</TableCell></TableRow>
+                  </>
+                )}
+              </TableBody>
+            </Table>
 
-        </CardContent>
-      </Card>
-    </main>
+            {/* Stock Trend Movement Summary Table */}
+            <h3 className="text-lg font-semibold my-4">Stock Trend Movement ({selectedDateRange})</h3>
+            <Table>
+              <TableCaption>Detailed view of individual stock trend changes.</TableCaption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Stock Name</TableHead>
+                  <TableHead>Current Signal</TableHead>
+                  <TableHead>Sector</TableHead>
+                  <TableHead>Previous Signal</TableHead>
+                  <TableHead>Change</TableHead>
+                  <TableHead>Days in Current Signal</TableHead>
+                  <TableHead>Validation (L5)</TableHead>
+                  <TableHead>Notes</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+              {loading ? (
+                  <TableRow><TableCell colSpan={8} className="text-center">Loading...</TableCell></TableRow>
+                ) : filteredStockTrendMovementData.length > 0 ? (
+                  filteredStockTrendMovementData.map((row) => ( // Use filtered data
+                    <TableRow key={row.stockName}>
+                      <TableCell>{row.stockName}</TableCell>
+                      <TableCell>
+                        {row.currentSignal ? (
+                          <span className={cn(
+                            'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
+                            {'bg-green-100 text-green-800': row.currentSignal.includes('Long Confirmed')},
+                            {'bg-red-100 text-red-800': row.currentSignal.includes('Short Confirmed')},
+                            {'bg-yellow-100 text-yellow-800': row.currentSignal.includes('Flip')},
+                            {'bg-blue-100 text-blue-800': row.currentSignal.includes('Long JN~') && !row.currentSignal.includes('Confirmed')},
+                            {'bg-pink-100 text-pink-800': row.currentSignal.includes('Short JN~') && !row.currentSignal.includes('Confirmed')},
+                            {'bg-gray-100 text-gray-800': !row.currentSignal.includes('Long') && !row.currentSignal.includes('Short') && !row.currentSignal.includes('Flip')}
+                          )}>
+                            {row.currentSignal}
+                          </span>
+                        ) : '-'}
+                      </TableCell>
+                      <TableCell>{row.sector ?? '-'}</TableCell> {/* Display sector */}
+                      <TableCell>{row.previousSignal ?? '-'}</TableCell>
+                      <TableCell className="flex items-center">
+                        {row.changeType === 'Entry' && (row.currentSignal?.includes('Long') ? '⬆️ ' : '⬇️ ')}
+                        {row.changeType === 'Change' && (row.currentSignal?.includes('Long') ? '↗️ ' : (row.currentSignal?.includes('Short') ? '↘️ ' : ''))}
+                        {row.changeType === 'Exit' && '↔️ '} {/* Neutral icon for exit */}
+                        {row.change ?? '-'}
+                      </TableCell>
+                      <TableCell>
+                          {row.daysInCurrentSignal !== null ? (
+                              <span className={cn(
+                                  {'font-semibold text-green-600': row.daysInCurrentSignal > 5 && row.currentSignal?.includes('Long')},
+                                  {'font-semibold text-red-600': row.daysInCurrentSignal > 5 && row.currentSignal?.includes('Short')}
+                              )}>
+                                  {row.daysInCurrentSignal}
+                              </span>
+                          ) : '-'}
+                      </TableCell>
+                      <TableCell>{row.validation === true ? <span className="text-green-600 font-semibold">Yes</span> : row.validation === false ? <span className="text-red-600">No</span> : '-'}</TableCell>
+                      <TableCell>{row.notes ?? '-'}</TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow><TableCell colSpan={8} className="text-center">No stock trend movement data available or matching filters.</TableCell></TableRow>
+                )}
+                {/* Placeholder Row */}
+                  {!loading && stockTrendMovementData.length === 0 && (
+                    <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground">No data matching the selected filters.</TableCell></TableRow>
+                  )}
+              </TableBody>
+            </Table>
+
+          </CardContent>
+        </Card>
+      </main>
+    </TooltipProvider>
   );
 }
+
