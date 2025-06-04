@@ -475,8 +475,10 @@ export default function SummaryPage() {
               <Card>
                 <CardHeader>
                   <Tooltip>
-                    <TooltipTrigger className="flex items-center gap-1 cursor-default">
-                      <CardTitle className="text-md">Total Stocks Tracked</CardTitle><Info size={14} className="text-muted-foreground" />
+                    <TooltipTrigger asChild>
+                      <span className="flex items-center gap-1 cursor-help">
+                        <CardTitle className="text-md">Total Stocks Tracked</CardTitle><Info size={14} className="text-muted-foreground" />
+                      </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="max-w-xs">
                       <p>Total number of unique stocks for which trend movement data was successfully processed for the selected period.</p>
@@ -487,8 +489,10 @@ export default function SummaryPage() {
               <Card>
                 <CardHeader>
                   <Tooltip>
-                    <TooltipTrigger className="flex items-center gap-1 cursor-default">
-                      <CardTitle className="text-md">New Long Entries</CardTitle><Info size={14} className="text-muted-foreground" />
+                     <TooltipTrigger asChild>
+                      <span className="flex items-center gap-1 cursor-help">
+                        <CardTitle className="text-md">New Long Entries</CardTitle><Info size={14} className="text-muted-foreground" />
+                      </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="max-w-xs">
                       <p>Number of stocks that newly entered any 'Long' signal (e.g., 'Long JN~ & R', 'Long Confirmed') during the selected period, having no signal or a different signal previously.</p>
@@ -499,8 +503,10 @@ export default function SummaryPage() {
               <Card>
                 <CardHeader>
                   <Tooltip>
-                    <TooltipTrigger className="flex items-center gap-1 cursor-default">
-                      <CardTitle className="text-md">New Short Entries</CardTitle><Info size={14} className="text-muted-foreground" />
+                    <TooltipTrigger asChild>
+                      <span className="flex items-center gap-1 cursor-help">
+                        <CardTitle className="text-md">New Short Entries</CardTitle><Info size={14} className="text-muted-foreground" />
+                      </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="max-w-xs">
                       <p>Number of stocks that newly entered any 'Short' signal (e.g., 'Short JN~ & D', 'Short Confirmed') during the selected period, having no signal or a different signal previously.</p>
@@ -511,8 +517,10 @@ export default function SummaryPage() {
               <Card>
                 <CardHeader>
                   <Tooltip>
-                    <TooltipTrigger className="flex items-center gap-1 cursor-default">
-                      <CardTitle className="text-md">Red Flips</CardTitle><Info size={14} className="text-muted-foreground" />
+                    <TooltipTrigger asChild>
+                      <span className="flex items-center gap-1 cursor-help">
+                        <CardTitle className="text-md">Red Flips</CardTitle><Info size={14} className="text-muted-foreground" />
+                      </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="max-w-xs">
                       <p>Stocks ending the period in a 'Red Flip' state. This indicates a JNSAR crossover from below Close to above Close (on the last day of period), suggesting a potential shift to a bearish outlook. This is based on the daily JNSAR calculation for the specified period.</p>
@@ -523,8 +531,10 @@ export default function SummaryPage() {
               <Card>
                 <CardHeader>
                   <Tooltip>
-                    <TooltipTrigger className="flex items-center gap-1 cursor-default">
-                      <CardTitle className="text-md">Green Flips</CardTitle><Info size={14} className="text-muted-foreground" />
+                    <TooltipTrigger asChild>
+                      <span className="flex items-center gap-1 cursor-help">
+                        <CardTitle className="text-md">Green Flips</CardTitle><Info size={14} className="text-muted-foreground" />
+                      </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="max-w-xs">
                       <p>Stocks ending the period in a 'Green Flip' state. This indicates a JNSAR crossover from above Close to below Close (on the last day of period), suggesting a potential shift to a bullish outlook. This is based on the daily JNSAR calculation for the specified period.</p>
@@ -535,8 +545,10 @@ export default function SummaryPage() {
               <Card>
                 <CardHeader>
                   <Tooltip>
-                    <TooltipTrigger className="flex items-center gap-1 cursor-default">
-                      <CardTitle className="text-md">Confirmed Longs</CardTitle><Info size={14} className="text-muted-foreground" />
+                    <TooltipTrigger asChild>
+                      <span className="flex items-center gap-1 cursor-help">
+                        <CardTitle className="text-md">Confirmed Longs</CardTitle><Info size={14} className="text-muted-foreground" />
+                      </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="max-w-xs">
                       <p>Stocks ending the period in a 'Long Confirmed' state. This typically requires a Green JNSAR trigger and the stock's 'Current Trend' (e.g., R5 from external data, currently placeholder) to be 'R' (Rising).</p>
@@ -547,8 +559,10 @@ export default function SummaryPage() {
               <Card>
                 <CardHeader>
                   <Tooltip>
-                    <TooltipTrigger className="flex items-center gap-1 cursor-default">
-                      <CardTitle className="text-md">Confirmed Shorts</CardTitle><Info size={14} className="text-muted-foreground" />
+                    <TooltipTrigger asChild>
+                      <span className="flex items-center gap-1 cursor-help">
+                        <CardTitle className="text-md">Confirmed Shorts</CardTitle><Info size={14} className="text-muted-foreground" />
+                      </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="max-w-xs">
                       <p>Stocks ending the period in a 'Short Confirmed' state. This typically requires a Red JNSAR trigger and the stock's 'Current Trend' (e.g., R5 from external data, currently placeholder) to be 'D' (Declining).</p>
